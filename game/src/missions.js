@@ -207,15 +207,26 @@ export function createMissions(scene, world, ctx) {
       });
       stageState.killed = 0;
     } else if (stage.type === 'enterVehicle') {
-      // Make sure a vehicle of the right kind waits at the spot.
+      // Make sure a vehicle of the right kind waits at the spot. The car is
+      // parked on the nearest road (not inside a block) and the stage target
+      // IS the car, so the player walks straight onto it (E enters within 6 m).
       const spot = snap(stage.x, stage.z);
-      stageState.tx = spot.x;
-      stageState.tz = spot.z;
-      const near = ctx.vehicles.nearestVehicle(spot.x, spot.z, 25);
+      let carSpot = spot;
+      // Cars park on the nearest road; boats stay in the water.
+      if (stage.kind !== 'boat') {
+        try {
+          const rg = ctx.world && ctx.world.roadGraph;
+          if (rg && rg.nearestOnRoad) {
+            const onRoad = rg.nearestOnRoad(spot.x, spot.z);
+            if (onRoad && typeof onRoad.x === 'number') carSpot = { x: onRoad.x, z: onRoad.z };
+          }
+        } catch { /* keep the snapped spot */ }
+      }
+      stageState.tx = carSpot.x;
+      stageState.tz = carSpot.z;
+      const near = ctx.vehicles.nearestVehicle(carSpot.x, carSpot.z, 25);
       if (!near || near.kind !== stage.kind) {
-        // Park the mission vehicle exactly on the stage target so the
-        // player walks straight onto it (E enters within 6 m).
-        const v = ctx.vehicles.addVehicle(stage.kind, 0xf59e0b, spot.x, spot.z, 0, { parked: true, missionCar: true });
+        const v = ctx.vehicles.addVehicle(stage.kind, 0xf59e0b, carSpot.x, carSpot.z, 0, { parked: true, missionCar: true });
         stageState.missionVehicle = v;
       } else {
         stageState.missionVehicle = near;

@@ -337,8 +337,10 @@ async function main() {
               let best = null;
               let bestD = Infinity;
               for (const v of g.vehicles.list) {
+                // Parked cars only: traffic cars drive away while you walk.
+                if (!v.parked || v.kind === 'boat') continue;
                 const d = Math.hypot(v.mesh.position.x - p.x, v.mesh.position.z - p.z);
-                if (v.kind !== 'boat' && d < bestD) { bestD = d; best = v; }
+                if (d < bestD) { bestD = d; best = v; }
               }
               return best ? [best.mesh.position.x, best.mesh.position.z] : null;
             });

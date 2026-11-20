@@ -168,7 +168,10 @@ export function createVehicles(scene, world) {
     else v.speed -= Math.sign(v.speed) * Math.min(Math.abs(v.speed), 8 * dt);
     v.speed = Math.max(-v.maxSpeed * 0.35, Math.min(v.maxSpeed, v.speed));
     const steer = input.turn * (v.speed >= 0 ? 1 : -1) * Math.min(1, Math.abs(v.speed) / 6 + 0.25);
-    v.heading -= steer * (isBoat ? 1.1 : 1.9) * dt;
+    // Same sign as on foot (player.js): A / turn +1 raises the heading,
+    // which turns the car to screen-left. (Was inverted: cars steered away
+    // from the target and could never complete a driven mission.)
+    v.heading += steer * (isBoat ? 1.1 : 1.9) * dt;
     const nx = v.mesh.position.x + Math.sin(v.heading) * v.speed * dt;
     const nz = v.mesh.position.z + Math.cos(v.heading) * v.speed * dt;
     if (isBoat) {
