@@ -110,9 +110,13 @@ let fpsFrames = 0;
 let fpsWallStart = 0;
 let fpsShown = 0;
 
-// GPS arrow: a cone floating above Vera, pointing at the current target.
+// GPS arrow: a small slim cone floating just above Vera, pointing at the
+// current target. The old one (r=0.5, h=1.4, 4 segments) was as big as
+// Vera and read as a pink diamond/kite — its square cross-section looked
+// like a diamond from the chase camera and its direction was unreadable.
+// Slim + round (12 segments) + half the size reads as an arrowhead.
 const gpsArrow = new THREE.Mesh(
-  new THREE.ConeGeometry(0.5, 1.4, 4),
+  new THREE.ConeGeometry(0.22, 0.9, 12),
   new THREE.MeshBasicMaterial({ color: 0xf472b6 }),
 );
 gpsArrow.rotation.x = Math.PI / 2;
@@ -217,8 +221,17 @@ function startGame(fromSave) {
   state = 'playing';
   startPanel.classList.add('hidden');
   // HUD only exists while playing (BUG polish 8): it sat behind the title.
-  for (const id of ['hud', 'minimap', 'hudHint']) document.getElementById(id)?.classList.remove('hidden');
-  hudState.textContent = 'Playing — WASD move · E interact · M map · B phone';
+  // The keyboard hint is keyboard-only: on a touch device it must stay
+  // hidden (class AND the body.touch-device CSS rule), or the WASD bar
+  // shows on phones — the old code un-hid it unconditionally, and the
+  // width-only media query was the only thing hiding it (a wide touch
+  // viewport showed it). The HUD state line gets touch wording too.
+  const isTouch = document.body.classList.contains('touch-device');
+  for (const id of ['hud', 'minimap']) document.getElementById(id)?.classList.remove('hidden');
+  if (!isTouch) document.getElementById('hudHint')?.classList.remove('hidden');
+  hudState.textContent = isTouch
+    ? 'Playing — left stick to move · buttons to act'
+    : 'Playing — WASD move · E interact · M map · B phone';
   audio.unlock();
   ui.setMoney(money);
   ui.toast(fromSave ? 'Save loaded. Welcome back, Vera.' : 'Vera owes Rico $50,000. Mission 1 is waiting — open your phone (B).', 5000);
@@ -474,7 +487,7 @@ function updateHud(dt) {
     const d = Math.hypot(p.x - target.x, p.z - target.z);
     ui.setGps(d, gps ? gps.name : (missions.currentStage()?.text || 'Target'));
     gpsArrow.visible = true;
-    gpsArrow.position.set(p.x, 3.2, p.z);
+    gpsArrow.position.set(p.x, 2.7, p.z);
     // Cone points +Y by default; order YXZ with X=90° points it along the
     // heading (sin ang, 0, cos ang) toward the target.
     gpsArrow.rotation.order = 'YXZ';

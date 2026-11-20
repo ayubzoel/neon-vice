@@ -51,8 +51,19 @@ export const MISSION_DEFS = [
     reward: 1500,
     stages: [{
       type: 'race', timeLimit: 150,
+      // Checkpoints sit ON road-graph nodes (intersections), not mid-block:
+      // the driver triggers a checkpoint at 12 m while still approaching
+      // it, and findPath then starts the next leg from the nearest node —
+      // a mid-block checkpoint (old cp1 (0,0), old cp2 (300,-300)) flips
+      // that node BEHIND the car, forcing a 180-degree U-turn that swings
+      // the car off the road into a building corner: (42,-16) in the old
+      // route, (318,-296) in the (300,-300) route (re-tester + Builder E
+      // 5x run: 2/5). Node-aligned checkpoints make every transition
+      // "continue straight, then a 90-degree left turn" — a clean
+      // rectangle: east along z=0, north along x=300, west along z=-360,
+      // south along x=-300 to the finish.
       checkpoints: [
-        { x: 0, z: 0 }, { x: 300, z: -300 }, { x: -300, z: -300 }, { x: 0, z: 300 },
+        { x: 300, z: 0 }, { x: 300, z: -360 }, { x: -300, z: -360 }, { x: -300, z: 240 },
       ],
       text: 'Hit all 4 checkpoints before the clock runs out',
     }],

@@ -151,6 +151,12 @@ async function driveTo(page, x, z, timeout = 90000, opts = {}) {
     // take ~290 game-seconds, over its 150 s limit.
     const legOk = await driveLeg(page, lx, lz, Math.max(20000, timeout - (Date.now() - t0)), i === legs.length - 1, opts.doneCheck);
     if (!legOk) return false;
+    // The live target may already have moved on: a race checkpoint triggers
+    // at 12 m while the driver is still mid-route, so the remaining legs
+    // point at a stale target and the driver U-turns / wedges chasing it
+    // (mission 5 runs 1/3: checkpoint hit, objective already 4/4, yet the
+    // drive timed out on stale legs). Stop as soon as the target is stale.
+    if (opts.doneCheck && await opts.doneCheck()) return true;
     if (Date.now() - t0 > timeout) return false;
   }
   return true;
@@ -636,6 +642,12 @@ async function main() {
               if (tgt) {
                 ok = await driveTo(page, tgt[0], tgt[1], 150000, { direct: true, doneCheck: targetMoved(page, tgt[0], tgt[1]) });
                 note = ok ? 'sailed to north bay' : 'boat drive failed';
+                // Exit the boat after the sail: the next mission starts on
+                // foot, and a driver left in the boat is clamped to the
+                // water rect, so mission 9's on-foot goto runner times out
+                // (pre-existing 12/13 in the re-tester's baseline too — a
+                // human player presses E here; the harness must do the same).
+                if (ok) { await pressKey(page, 'KeyE'); await sleep(400); }
               } else note = 'no sail target';
             } else note = 'could not board boat';
           } else {

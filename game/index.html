@@ -17,7 +17,7 @@
   #hudHpWrap { width: 150px; height: 10px; background: rgba(255,255,255,0.2); border-radius: 5px; overflow: hidden; margin: 6px 0 8px; }
   #hudHpBar { height: 100%; width: 100%; background: #22c55e; }
   #hud.hidden, #minimap.hidden, #hudHint.hidden { display: none; }
-  body.touch-device #hudHint { display: none; }
+  body.touch-device #hudHint { display: none !important; }
   #minimap { position: fixed; right: 14px; top: 12px; z-index: 5; width: 150px; height: 150px; border: 2px solid rgba(255,255,255,0.25); border-radius: 8px; background: rgba(11,16,38,0.8); }
   #hudMsg { position: fixed; left: 50%; top: 70px; transform: translateX(-50%); z-index: 6; background: rgba(11,14,20,0.85); color: #fde68a; border: 1px solid #f59e0b; border-radius: 10px; padding: 10px 16px; font-size: 15px; font-weight: 600; opacity: 0; transition: opacity 0.25s; pointer-events: none; max-width: 90vw; text-align: center; }
   #hudMsg.show { opacity: 1; }

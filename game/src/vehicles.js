@@ -160,6 +160,25 @@ export function createVehicles(scene, world) {
     return best;
   }
 
+  // Car collision: the old single-point check (centre, r=1.4) let the car's
+  // nose/tail (2.3 m from the centre) penetrate a building face, so a car
+  // could sit with its centre in a free pocket 1-2 m from a building corner
+  // — e.g. the warehouse SE corner at (42,-16) — where every forward move
+  // rammed the wall and every reverse+steer arc clipped the corner, and the
+  // car could not escape (mission 5 wedge, re-tester 1/3 runs). Check the
+  // footprint instead: centre + nose + tail, each r=1.0 (the car's half
+  // width). The car now bumps while its body is still clear of the wall,
+  // so reversing out is always possible. Boats keep the water-rect check.
+  function carCollides(x, z, heading) {
+    if (!world.collides) return false;
+    const sx = Math.sin(heading);
+    const sz = Math.cos(heading);
+    if (world.collides(x, z, 1.0)) return true;
+    if (world.collides(x + sx * 1.7, z + sz * 1.7, 1.0)) return true;
+    if (world.collides(x - sx * 1.7, z - sz * 1.7, 1.0)) return true;
+    return false;
+  }
+
   function driveVehicle(v, input, dt) {
     const isBoat = v.kind === 'boat';
     const accel = isBoat ? v.accel : v.accel;
@@ -171,14 +190,24 @@ export function createVehicles(scene, world) {
     // Same sign as on foot (player.js): A / turn +1 raises the heading,
     // which turns the car to screen-left. (Was inverted: cars steered away
     // from the target and could never complete a driven mission.)
-    v.heading += steer * (isBoat ? 1.1 : 1.9) * dt;
+    // Rotation is collision-checked too: an unchecked turn can swing the
+    // nose/tail INTO a wall, after which every small translation step keeps
+    // a check point inside the collider zone and the car freezes in place
+    // (mission-5 wedge at (318,-296): nose 0.4 m from the warehouse face,
+    // no step out accepted). If the turn would put a check point inside a
+    // collider, keep the old heading — the car can still reverse out and
+    // turn once clear. Boats skip this (water-rect check below).
+    const newHeading = v.heading + steer * (isBoat ? 1.1 : 1.9) * dt;
+    if (isBoat || !world.collides || !carCollides(v.mesh.position.x, v.mesh.position.z, newHeading)) {
+      v.heading = newHeading;
+    }
     const nx = v.mesh.position.x + Math.sin(v.heading) * v.speed * dt;
     const nz = v.mesh.position.z + Math.cos(v.heading) * v.speed * dt;
     if (isBoat) {
       const w = CONFIG.water;
       v.mesh.position.x = Math.max(w.x0 + 3, Math.min(w.x1 - 3, nx));
       v.mesh.position.z = Math.max(w.z0 + 3, Math.min(w.z1 - 3, nz));
-    } else if (world.collides && world.collides(nx, nz, 1.4)) {
+    } else if (world.collides && carCollides(nx, nz, v.heading)) {
       v.speed *= -0.25; // bump: kill speed, small bounce
     } else {
       const clamped = world.clamp(nx, nz);

@@ -74,16 +74,32 @@ export function createShops(scene, ctx) {
       const shop = SHOPS.find((s) => s.id === shopId);
       const item = shop && shop.items.find((i) => i.id === itemId);
       if (!item) return { ok: false, message: 'No such item.' };
-      if (ctx.getMoney() < item.price) return { ok: false, message: 'Not enough cash.' };
       if (itemId === 'smg' && ctx.combat.weapons.smg.owned) return { ok: false, message: 'You already own the SMG.' };
       // BUG-4: validate ownership BEFORE taking money. Buying ammo for a
       // weapon Vera does not own used to charge $150 and return ok:true.
       if (itemId === 'smgAmmo' && !ctx.combat.weapons.smg.owned) return { ok: false, message: 'You don\'t own an SMG yet — buy the SMG first.' };
       if (itemId === 'pistolAmmo' && !ctx.combat.weapons.pistol.owned) return { ok: false, message: 'You don\'t own a pistol.' };
+      // Ammo is sold by the pack but the reserve has a cap: buying a full
+      // pack at a full reserve used to charge $150 for +0 rounds. Refuse a
+      // full reserve outright; otherwise sell only the rounds that fit, at
+      // a proportional price (rounded up, never undercharged). Money is
+      // only taken for rounds actually received.
+      const ammoPack = { pistolAmmo: { kind: 'pistol', amount: 24 }, smgAmmo: { kind: 'smg', amount: 60 } }[itemId];
+      if (ammoPack) {
+        const w = ctx.combat.weapons[ammoPack.kind];
+        const room = w.reserveMax - w.reserve;
+        if (room <= 0) return { ok: false, message: `${w.name} ammo is full (${w.reserve}/${w.reserveMax}) — nothing bought, no charge.` };
+        const take = Math.min(ammoPack.amount, room);
+        const price = Math.ceil((item.price * take) / ammoPack.amount);
+        if (ctx.getMoney() < price) return { ok: false, message: 'Not enough cash.' };
+        ctx.spendMoney(price);
+        ctx.combat.buyAmmo(ammoPack.kind, take);
+        ctx.audio.cash();
+        return { ok: true, message: `Bought ${take} ${w.name} rounds for $${price} (reserve ${w.reserve}/${w.reserveMax}).` };
+      }
+      if (ctx.getMoney() < item.price) return { ok: false, message: 'Not enough cash.' };
       ctx.spendMoney(item.price);
       if (itemId === 'smg') ctx.combat.buyWeapon('smg');
-      else if (itemId === 'pistolAmmo') ctx.combat.buyAmmo('pistol', 24);
-      else if (itemId === 'smgAmmo') ctx.combat.buyAmmo('smg', 60);
       else if (item.color !== undefined) ctx.player.setJacket(item.color);
       ctx.audio.cash();
       return { ok: true, message: `Bought ${item.name} for $${item.price}.` };
