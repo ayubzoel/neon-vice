@@ -62,6 +62,8 @@ export function createPlayer(scene) {
     y: 0, // jump height above ground
     vy: 0,
     grounded: true,
+    swimming: false, // in the east water strip: slow swim, no shooting
+    swimSpeed: 2.6, // m/s — slow, but always enough to reach the shore
     jacketColor: CONFIG.colors.heroBody,
 
     setJacket(color) {
@@ -111,10 +113,28 @@ export function createPlayer(scene) {
       }
 
       this.speed = speed;
+      // BUG-1 — swimming: water is not walkable (collides() says so), but
+      // Vera must never freeze in it. In the water strip she swims slowly
+      // in the steered direction; the step is allowed regardless of
+      // collides(), clamped to the water rect, so she can always reach the
+      // sand. No jumping while swimming.
+      const inWater = world.isInWater
+        ? world.isInWater(this.group.position.x, this.group.position.z)
+        : false;
+      this.swimming = inWater;
       if (speed !== 0) {
         const nx = this.group.position.x + moveX * speed * dt;
         const nz = this.group.position.z + moveZ * speed * dt;
-        if (world.collides && world.collides(nx, nz, CONFIG.player.radius)) {
+        if (inWater) {
+          const swim = this.swimSpeed * Math.sign(speed || 1);
+          const sx = this.group.position.x + moveX * swim * dt;
+          const sz = this.group.position.z + moveZ * swim * dt;
+          const clamped = world.clamp(sx, sz);
+          // Never swim past the east edge of the water.
+          this.group.position.x = Math.min(clamped.x, 598);
+          this.group.position.z = clamped.z;
+          this.speed = swim;
+        } else if (world.collides && world.collides(nx, nz, CONFIG.player.radius)) {
           // Slide along the obstacle: try X alone, then Z alone.
           if (!world.collides(nx, this.group.position.z, CONFIG.player.radius)) {
             this.group.position.x = nx;
@@ -129,7 +149,8 @@ export function createPlayer(scene) {
       }
 
       // Jump: simple vertical velocity, ground at y = 0 (flat city).
-      if (this.grounded && input.jump) {
+      // No jumping while swimming.
+      if (this.grounded && input.jump && !this.swimming) {
         this.vy = 7;
         this.grounded = false;
       }
@@ -142,7 +163,7 @@ export function createPlayer(scene) {
           this.grounded = true;
         }
       }
-      this.group.position.y = this.y;
+      this.group.position.y = this.swimming ? -0.55 : this.y; // waist-deep while swimming
       this.group.rotation.y = this.heading;
     },
 
@@ -152,6 +173,7 @@ export function createPlayer(scene) {
       this.group.rotation.y = this.heading;
       this.speed = 0;
       this.hp = this.maxHp;
+      this.swimming = false;
       this.y = 0;
       this.vy = 0;
       this.grounded = true;

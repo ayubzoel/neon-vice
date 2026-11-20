@@ -24,9 +24,22 @@ const errorBox = document.getElementById('webglError');
 const startPanel = document.getElementById('startScreen');
 const hudState = document.getElementById('hudState');
 
+// Cheap software-renderer probe (before the real renderer exists): a
+// throwaway context reveals SwiftShader/llvmpipe, where antialias + a
+// device-pixel-ratio > 1 are pure fill-rate cost. On software rendering we
+// create the renderer without antialias and default to low quality.
+let softwareGL = false;
+try {
+  const probe = document.createElement('canvas').getContext('webgl');
+  const ext = probe && probe.getExtension('WEBGL_debug_renderer_info');
+  const rendererName = ext ? probe.getParameter(ext.UNMASKED_RENDERER_WEBGL) : '';
+  softwareGL = /swiftshader|llvmpipe|software|basic render/i.test(String(rendererName));
+  if (probe) probe.getExtension('WEBGL_lose_context')?.loseContext();
+} catch { /* keep defaults */ }
+
 let renderer;
 try {
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: !softwareGL });
 } catch (err) {
   errorBox.hidden = false;
   errorBox.textContent = `Neon Vice needs WebGL to run. (${err.message})`;
@@ -49,6 +62,9 @@ function normalizeWorld(raw) {
       return { x: Math.max(-halfW, Math.min(halfW, x)), z: Math.max(-halfD, Math.min(halfD, z)) };
     },
     collides: typeof raw.collides === 'function' ? (x, z, r) => raw.collides(x, z, r) : null,
+    isInWater: typeof raw.isInWater === 'function'
+      ? (x, z) => raw.isInWater(x, z)
+      : (x, z) => x > CONFIG.water.x0 - 2,
     roadGraph: raw.roadGraph || null,
     destinations: raw.destinations || null,
     groundHeightAt: typeof raw.groundHeightAt === 'function' ? (x, z) => raw.groundHeightAt(x, z) : () => 0,
@@ -77,13 +93,14 @@ const weather = createWeather(scene);
 const vehicles = createVehicles(scene, world);
 const combat = createCombat(scene, world, player, audio);
 
-const settings = { lang: 'en', volume: 0.7, quality: 'high' };
+const settings = { lang: 'en', volume: 0.7, quality: softwareGL ? 'low' : 'high' };
 const ui = createUI(settings);
 const mapSys = createMap(world);
 
 let money = CONFIG.money.start;
 let state = 'title'; // 'title' | 'playing'
 let paused = false; // an overlay (map/shop/phone/settings) is open
+let overlay = null; // 'map' | 'shop' | 'phone' | 'settings' | null — which overlay paused the game
 let driving = null; // vehicle Vera is in, or null
 let mouseDown = false;
 let gameTime = 0; // seconds of game time (fixed steps only)
@@ -199,6 +216,8 @@ function startGame(fromSave) {
   }
   state = 'playing';
   startPanel.classList.add('hidden');
+  // HUD only exists while playing (BUG polish 8): it sat behind the title.
+  for (const id of ['hud', 'minimap', 'hudHint']) document.getElementById(id)?.classList.remove('hidden');
   hudState.textContent = 'Playing — WASD move · E interact · M map · B phone';
   audio.unlock();
   ui.setMoney(money);
@@ -206,7 +225,12 @@ function startGame(fromSave) {
 }
 
 function applyQuality() {
-  const ratio = settings.quality === 'low' ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+  // Low on a software renderer also renders at 0.75x backing resolution
+  // (upscaled by CSS): SwiftShader is fill-rate bound, so ~44% fewer
+  // fragments is the cheapest real FPS win. Real GPUs keep full res.
+  const ratio = settings.quality === 'low'
+    ? (softwareGL ? 0.75 : 1)
+    : Math.min(window.devicePixelRatio || 1, 2);
   renderer.setPixelRatio(ratio);
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
@@ -239,12 +263,19 @@ function nearestInteractable() {
 
 function doInteract() {
   if (driving) {
-    // Exit: place Vera beside the car on open ground.
+    // Exit: place Vera beside the vehicle on open ground. A boat sits in
+    // deep water, where Vera cannot stand — so for boats search far enough
+    // to reach the shore (BUG-1 soft-lock: the old 4 m search fell back to
+    // the water position and Vera froze). Swimming (player.js) is the
+    // second safety net if she ever ends up in the water anyway.
     const v = driving;
     driving = null;
-    const spot = world.findOpenGround(v.mesh.position.x + 3, v.mesh.position.z, 4);
+    const spot = v.kind === 'boat'
+      ? world.findOpenGround(v.mesh.position.x, v.mesh.position.z, 160)
+      : world.findOpenGround(v.mesh.position.x + 3, v.mesh.position.z, 4);
     player.group.position.set(spot.x, 0, spot.z);
     player.group.visible = true;
+    if (v.kind === 'boat') ui.toast(world.isInWater && world.isInWater(spot.x, spot.z) ? 'Swim to shore — hold W' : 'You wade ashore.');
     return;
   }
   const near = nearestInteractable();
@@ -262,6 +293,7 @@ function doInteract() {
 // ---- Panels ----
 function openShop(shop) {
   paused = true;
+  overlay = 'shop';
   const panel = document.getElementById('shopPanel');
   document.getElementById('shopTitle').textContent = shop.name;
   const list = document.getElementById('shopItems');
@@ -270,7 +302,8 @@ function openShop(shop) {
     const row = document.createElement('div');
     row.className = 'shopRow';
     const owned = item.id === 'smg' && combat.weapons.smg.owned;
-    row.innerHTML = `<span><b>${item.name}</b><br><small>${item.desc}</small></span><span>$${item.price}${owned ? ' · OWNED' : ''}</span>`;
+    const needsSmg = item.id === 'smgAmmo' && !combat.weapons.smg.owned;
+    row.innerHTML = `<span><b>${item.name}</b><br><small>${item.desc}${needsSmg ? ' · requires SMG' : ''}</small></span><span>$${item.price}${owned ? ' · OWNED' : ''}</span>`;
     const btn = document.createElement('button');
     btn.className = 'btn small';
     btn.textContent = owned ? 'Owned' : 'Buy';
@@ -288,10 +321,12 @@ function openShop(shop) {
 function closeShop() {
   document.getElementById('shopPanel').classList.add('hidden');
   paused = false;
+  if (overlay === 'shop') overlay = null;
 }
 
 function openPhone() {
   paused = true;
+  overlay = 'phone';
   const panel = document.getElementById('phonePanel');
   const list = document.getElementById('phoneJobs');
   list.innerHTML = '';
@@ -320,10 +355,12 @@ function openPhone() {
 function closePhone() {
   document.getElementById('phonePanel').classList.add('hidden');
   paused = false;
+  if (overlay === 'phone') overlay = null;
 }
 
 function openMap() {
   paused = true;
+  overlay = 'map';
   mapSys.open();
   document.getElementById('mapOverlay').classList.remove('hidden');
   resizeMapCanvas();
@@ -332,6 +369,7 @@ function closeMap() {
   mapSys.close();
   document.getElementById('mapOverlay').classList.add('hidden');
   paused = false;
+  if (overlay === 'map') overlay = null;
 }
 function resizeMapCanvas() {
   const c = document.getElementById('mapCanvas');
@@ -348,8 +386,23 @@ let stepBudget = 8; // max substeps per frame (mandated default); the debug
 
 function step(dt) {
   gameTime += dt;
-  if (paused || state !== 'playing') return;
+  // Consume edge-triggered presses FIRST, before the paused/title check
+  // (BUG-2/3): the old code returned early while paused, so a key pressed
+  // while an overlay was open sat in the queue and fired the frame after
+  // the overlay closed — M reopened the map by itself. While paused, the
+  // overlay's own toggle key closes it and everything else is discarded.
   const pressed = input.consumePressed();
+  if (paused || state !== 'playing') {
+    if (paused && overlay === 'map' && pressed.has('map')) closeMap();
+    else if (paused && overlay === 'phone' && pressed.has('phone')) closePhone();
+    else if (paused && overlay === 'shop' && pressed.has('interact')) closeShop();
+    else if (paused && overlay === 'settings' && pressed.has('map')) {
+      document.getElementById('settingsPanel').classList.add('hidden');
+      paused = false;
+      overlay = null;
+    }
+    return;
+  }
   const frameInput = input.read();
   frameInput.jump = pressed.has('jump');
 
@@ -381,8 +434,8 @@ function step(dt) {
   }
   vehicles.update(dt);
 
-  // Combat.
-  if ((frameInput.fire || mouseDown) && !driving) combat.shoot();
+  // Combat. No shooting while swimming (BUG-1 swim rules).
+  if ((frameInput.fire || mouseDown) && !driving && !player.swimming) combat.shoot();
   combat.update(dt, gameTime, !!driving);
 
   // Missions + weather.
@@ -395,6 +448,9 @@ function step(dt) {
 
 // ---- HUD ----
 let hudTimer = 0;
+let minimapTimer = 0;
+let lowFpsStreak = 0;
+let autoDegraded = false;
 function updateHud(dt) {
   hudTimer += dt;
   if (hudTimer < 0.12) return;
@@ -407,10 +463,16 @@ function updateHud(dt) {
   ui.setHp(player.hp, player.maxHp);
   ui.setAmmo(driving ? '—' : `${combat.weapons[combat.current].name} ${combat.ammoText()}${combat.isReloading() ? ' …' : ''}`);
   ui.setClock(weather.clockText(), weather.raining);
-  const target = missions.stageTarget() || mapSys.gpsTarget;
+  // GPS (BUG-GPS): name, distance and the 3D arrow must all point at the
+  // SAME target. GPS wins when set; otherwise the mission target with the
+  // mission stage name. The old code measured the mission target but
+  // labelled it with the GPS destination name.
+  const gps = mapSys.gpsTarget;
+  const missionTarget = missions.stageTarget();
+  const target = gps || missionTarget;
   if (target) {
     const d = Math.hypot(p.x - target.x, p.z - target.z);
-    ui.setGps(d, mapSys.gpsTarget ? mapSys.gpsTarget.name : (missions.currentStage()?.text || 'Target'));
+    ui.setGps(d, gps ? gps.name : (missions.currentStage()?.text || 'Target'));
     gpsArrow.visible = true;
     gpsArrow.position.set(p.x, 3.2, p.z);
     // Cone points +Y by default; order YXZ with X=90° points it along the
@@ -423,7 +485,9 @@ function updateHud(dt) {
   }
   // Interaction hint.
   const hint = document.getElementById('hudHint');
-  if (!driving) {
+  if (player.swimming) {
+    hint.textContent = 'Swimming — steer toward the shore';
+  } else if (!driving) {
     const near = nearestInteractable();
     if (near?.kind === 'vehicle') hint.textContent = ui.t('enterCar');
     else if (near?.kind === 'shop') hint.textContent = `${near.shop.name} — ${ui.t('enterCar').replace('enter', 'open')}`;
@@ -431,14 +495,19 @@ function updateHud(dt) {
   } else {
     hint.textContent = ui.t('exitCar');
   }
-  // Minimap.
-  ui.drawMinimap(
-    document.getElementById('minimap'),
-    p, player.heading,
-    missions.stageTarget(),
-    Object.values(CONFIG.places),
-    mapSys.gpsTarget,
-  );
+  // Minimap (throttled: redrawn every ~0.36 s, not every HUD tick).
+  minimapTimer += dt;
+  if (minimapTimer >= 0.36) {
+    minimapTimer = 0;
+    ui.drawMinimap(
+      document.getElementById('minimap'),
+      p, player.heading,
+      missions.stageTarget(),
+      Object.values(CONFIG.places),
+      mapSys.gpsTarget,
+      world.roadGraph ? world.roadGraph.segments : null,
+    );
+  }
   // Map overlay redraw.
   if (mapSys.isOpen) {
     mapSys.draw(document.getElementById('mapCanvas'), p, player.heading);
@@ -473,6 +542,22 @@ function frame(now) {
     fpsShown = Math.round(fpsFrames / wallSec);
     fpsFrames = 0;
     fpsWallStart = now;
+    // Auto-degrade once: sustained < 18 FPS on high quality drops to low
+    // (pixel ratio 1, no antialias effect at runtime — the probe already
+    // disabled it at creation on software GL). Cheap, no visual redesign.
+    if (!autoDegraded && settings.quality !== 'low' && fpsShown > 0 && fpsShown < 18) {
+      lowFpsStreak += 1;
+      if (lowFpsStreak >= 4) {
+        autoDegraded = true;
+        settings.quality = 'low';
+        const sel = document.getElementById('qualitySel');
+        if (sel) sel.value = 'low';
+        applyQuality();
+        ui.toast('Graphics auto-set to Low for smooth play');
+      }
+    } else if (fpsShown >= 18) {
+      lowFpsStreak = 0;
+    }
   }
 
   frames += 1;
@@ -492,6 +577,7 @@ function frame(now) {
         speed: driving ? Math.abs(driving.speed) : player.speed,
         mission: missions.status, missionId: missions.currentDef()?.id ?? null,
         driving: !!driving, hour: weather.hour, raining: weather.raining,
+        quality: settings.quality, softwareGL, swimming: player.swimming,
       }),
       game: { player, vehicles, combat, missions, shops, weather, save, map: mapSys, ui, audio, input, world },
       debug: {
@@ -548,11 +634,13 @@ document.getElementById('btnNew').addEventListener('click', () => startGame(fals
 document.getElementById('btnContinue').addEventListener('click', () => startGame(true));
 document.getElementById('btnSettings').addEventListener('click', () => {
   paused = state === 'playing';
+  overlay = paused ? 'settings' : null;
   document.getElementById('settingsPanel').classList.remove('hidden');
 });
 document.getElementById('btnCloseSettings').addEventListener('click', () => {
   document.getElementById('settingsPanel').classList.add('hidden');
   paused = false;
+  if (overlay === 'settings') overlay = null;
 });
 document.getElementById('btnCloseShop').addEventListener('click', closeShop);
 document.getElementById('btnClosePhone').addEventListener('click', closePhone);

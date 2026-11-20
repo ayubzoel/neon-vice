@@ -72,16 +72,48 @@ export function createMap(world) {
       ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(tx, ty); ctx.stroke();
       ctx.setLineDash([]);
     }
-    // Destinations.
+    // Destinations. Labels use greedy collision avoidance: each label tries
+    // right / left / above / below the dot and takes the first slot whose
+    // box does not overlap an already-placed label (the 4 reported pairs —
+    // Plaza Vera×RS Pantai, Masjid Al-Nur×Polsek Beach, Kuil Dewi Harbor×
+    // Polsek Pelabuhan, Masjid Pantai×Polsek Beach — all sat ~120 m apart
+    // on the same row, so right-only labels always collided).
     const dests = destinations();
     ctx.font = '12px system-ui, sans-serif';
+    const placedBoxes = [];
+    // Dots themselves are obstacles too: dest 17's dot sat on top of dest
+    // 7's label text ("Masjid Al-Nur" lost its N under the dot).
+    const dotBoxes = dests.map((d) => {
+      const [mx, my] = toMap(d.x, d.z);
+      return { x0: mx - 8, y0: my - 8, x1: mx + 8, y1: my + 8 };
+    });
+    const overlaps = (b, selfIdx) => [...placedBoxes, ...dotBoxes.filter((_, j) => j !== selfIdx)]
+      .some((o) => b.x0 < o.x1 + 4 && b.x1 > o.x0 - 4 && b.y0 < o.y1 + 4 && b.y1 > o.y0 - 4);
     dests.forEach((d, i) => {
       const [mx, my] = toMap(d.x, d.z);
       const selected = gpsTarget && gpsTarget.name === d.name;
       ctx.fillStyle = selected ? '#f472b6' : '#22d3ee';
       ctx.beginPath(); ctx.arc(mx, my, selected ? 7 : 5, 0, Math.PI * 2); ctx.fill();
+      const label = `${i + 1}. ${d.name}`;
+      const tw = ctx.measureText(label).width;
+      // Vertical offsets are deliberately large (±22/28 px): the colliding
+      // pairs sit ~120 m apart on nearly the same row, so a same-row label
+      // is only ~13 px below its neighbour — visually still a collision.
+      const candidates = [
+        [mx + 9, my + 4], [mx - 9 - tw, my + 4],
+        [mx + 9, my - 22], [mx + 9, my + 28],
+        [mx - 9 - tw, my - 22], [mx - 9 - tw, my + 28],
+      ];
+      let slot = candidates[0];
+      for (const [lx, ly] of candidates) {
+        const box = { x0: lx - 2, y0: ly - 12, x1: lx + tw + 2, y1: ly + 5 };
+        if (!overlaps(box, i)) { slot = [lx, ly]; placedBoxes.push(box); break; }
+      }
+      if (!placedBoxes.some((o) => o.x0 === slot[0] - 2 && o.y0 === slot[1] - 12)) {
+        placedBoxes.push({ x0: slot[0] - 2, y0: slot[1] - 12, x1: slot[0] + tw + 2, y1: slot[1] + 5 });
+      }
       ctx.fillStyle = '#e2e8f0';
-      ctx.fillText(`${i + 1}. ${d.name}`, mx + 9, my + 4);
+      ctx.fillText(label, slot[0], slot[1]);
     });
     // Player arrow.
     const [px, py] = toMap(playerPos.x, playerPos.z);

@@ -127,6 +127,7 @@ export function createInput() {
       bindTouchButton('btnHolster', 'holster', false);
       if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
         document.getElementById('touch')?.classList.add('on');
+        document.body.classList.add('touch-device'); // hides the WASD hint
       }
     },
 

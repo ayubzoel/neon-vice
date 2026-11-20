@@ -85,8 +85,9 @@ export function createUI(settings) {
     msgTimer = setTimeout(() => el.classList.remove('show'), ms);
   }
 
-  // Minimap: 2D top-down, player centred, places + objective beacon.
-  function drawMinimap(canvas, playerPos, heading, beaconPos, places, gpsTarget) {
+  // Minimap: 2D top-down, player centred, roads + water + bounds + places +
+  // objective beacon. segments: roadGraph.segments [{ax,az,bx,bz}] or null.
+  function drawMinimap(canvas, playerPos, heading, beaconPos, places, gpsTarget, segments) {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     const S = canvas.width;
@@ -105,6 +106,37 @@ export function createUI(settings) {
     ctx.fillStyle = '#0e3a5c';
     const [wx] = toMini(CONFIG.water.x0, 0);
     ctx.fillRect(wx, 0, (CONFIG.water.x1 - CONFIG.water.x0) * scale, S);
+    // Roads (was: minimap showed only dots — nearly useless).
+    ctx.strokeStyle = '#5b6b85';
+    ctx.lineWidth = 2;
+    if (segments && segments.length) {
+      for (const s of segments) {
+        const [x1, y1] = toMini(s.ax, s.az);
+        const [x2, y2] = toMini(s.bx, s.bz);
+        if ((x1 < -10 && x2 < -10) || (x1 > S + 10 && x2 > S + 10)
+          || (y1 < -10 && y2 < -10) || (y1 > S + 10 && y2 > S + 10)) continue;
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      }
+    } else {
+      // Fallback grid when no road graph is available.
+      ctx.lineWidth = 1;
+      for (let gx = -600; gx <= 600; gx += 120) {
+        const [x1, y1] = toMini(gx, -450);
+        const [x2, y2] = toMini(gx, 450);
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      }
+      for (let gz = -450; gz <= 450; gz += 120) {
+        const [x1, y1] = toMini(-600, gz);
+        const [x2, y2] = toMini(600, gz);
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      }
+    }
+    // World bounds.
+    const [bx0, by0] = toMini(-CONFIG.world.width / 2, -CONFIG.world.depth / 2);
+    const [bx1, by1] = toMini(CONFIG.world.width / 2, CONFIG.world.depth / 2);
+    ctx.strokeStyle = '#f472b6';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(bx0, by0, bx1 - bx0, by1 - by0);
     for (const p of places) {
       const [mx, my] = toMini(p.x, p.z);
       if (mx < -4 || my < -4 || mx > S + 4 || my > S + 4) continue;

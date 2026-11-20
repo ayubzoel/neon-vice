@@ -14,8 +14,10 @@
   #hudMoney { font-size: 20px !important; font-weight: 800; color: #4ade80 !important; }
   #hudWanted { font-size: 18px !important; letter-spacing: 2px; }
   #hudObjective { color: #fbbf24 !important; font-weight: 600; max-width: 46vw; }
-  #hudHpWrap { width: 150px; height: 10px; background: rgba(255,255,255,0.2); border-radius: 5px; overflow: hidden; margin-top: 4px; }
+  #hudHpWrap { width: 150px; height: 10px; background: rgba(255,255,255,0.2); border-radius: 5px; overflow: hidden; margin: 6px 0 8px; }
   #hudHpBar { height: 100%; width: 100%; background: #22c55e; }
+  #hud.hidden, #minimap.hidden, #hudHint.hidden { display: none; }
+  body.touch-device #hudHint { display: none; }
   #minimap { position: fixed; right: 14px; top: 12px; z-index: 5; width: 150px; height: 150px; border: 2px solid rgba(255,255,255,0.25); border-radius: 8px; background: rgba(11,16,38,0.8); }
   #hudMsg { position: fixed; left: 50%; top: 70px; transform: translateX(-50%); z-index: 6; background: rgba(11,14,20,0.85); color: #fde68a; border: 1px solid #f59e0b; border-radius: 10px; padding: 10px 16px; font-size: 15px; font-weight: 600; opacity: 0; transition: opacity 0.25s; pointer-events: none; max-width: 90vw; text-align: center; }
   #hudMsg.show { opacity: 1; }
@@ -65,7 +67,7 @@
 <body>
 <canvas id="game" aria-label="Neon Vice: a 3D open-world crime game. Explore Vice Harbor on foot."></canvas>
 
-<div id="hud">
+<div id="hud" class="hidden">
   <h1>NEON VICE</h1>
   <p id="hudMoney">$250</p>
   <p id="hudDebt">Debt to Rico: $50,000</p>
@@ -80,9 +82,9 @@
   <p id="hudFps">— FPS</p>
   <p id="hudState">Vice Harbor</p>
 </div>
-<canvas id="minimap" width="150" height="150"></canvas>
+<canvas id="minimap" class="hidden" width="150" height="150"></canvas>
 <div id="hudMsg"></div>
-<div id="hudHint">WASD move &middot; Shift run &middot; E interact &middot; M map &middot; B phone &middot; H holster</div>
+<div id="hudHint" class="hidden">WASD move &middot; Shift run &middot; E interact &middot; M map &middot; B phone &middot; H holster</div>
 
 <div id="webglError" hidden></div>
 

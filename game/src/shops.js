@@ -76,6 +76,10 @@ export function createShops(scene, ctx) {
       if (!item) return { ok: false, message: 'No such item.' };
       if (ctx.getMoney() < item.price) return { ok: false, message: 'Not enough cash.' };
       if (itemId === 'smg' && ctx.combat.weapons.smg.owned) return { ok: false, message: 'You already own the SMG.' };
+      // BUG-4: validate ownership BEFORE taking money. Buying ammo for a
+      // weapon Vera does not own used to charge $150 and return ok:true.
+      if (itemId === 'smgAmmo' && !ctx.combat.weapons.smg.owned) return { ok: false, message: 'You don\'t own an SMG yet — buy the SMG first.' };
+      if (itemId === 'pistolAmmo' && !ctx.combat.weapons.pistol.owned) return { ok: false, message: 'You don\'t own a pistol.' };
       ctx.spendMoney(item.price);
       if (itemId === 'smg') ctx.combat.buyWeapon('smg');
       else if (itemId === 'pistolAmmo') ctx.combat.buyAmmo('pistol', 24);

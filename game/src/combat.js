@@ -9,23 +9,43 @@
 import { CONFIG } from './config.js';
 
 function makeWeaponMesh(kind) {
+  // Pistol vs SMG must read as DIFFERENT weapons from the 9 m chase camera
+  // at night (tester: both were the same small dark blob). Pistol: short,
+  // gunmetal + amber grip accent. SMG: ~2x longer, olive body, long bright
+  // orange magazine + stock + amber muzzle stripe, scaled up ~1.6x.
   const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.35, metalness: 0.7 });
   if (kind === 'pistol') {
-    const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.12, 0.42), mat);
+    const mat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.3, metalness: 0.8 });
+    const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.17, 0.62), mat);
     group.add(barrel);
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.26, 0.12), mat);
-    grip.position.set(0, -0.14, -0.12);
+    const gripMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.5, emissive: 0x92400e, emissiveIntensity: 0.7 });
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.38, 0.17), gripMat);
+    grip.position.set(0, -0.22, -0.18);
     group.add(grip);
+    const sight = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.09, 0.1),
+      new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xf59e0b, emissiveIntensity: 1.2 }));
+    sight.position.set(0, 0.13, 0.22);
+    group.add(sight);
   } else {
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.14, 0.62), mat);
+    const mat = new THREE.MeshStandardMaterial({ color: 0x4d7c0f, roughness: 0.4, metalness: 0.6 });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.21, 0.98), mat);
     group.add(body);
-    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.3, 0.1), mat);
-    mag.position.set(0, -0.18, 0.05);
+    const magMat = new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.45, emissive: 0x7c2d12, emissiveIntensity: 0.8 });
+    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.48, 0.15), magMat);
+    mag.position.set(0, -0.3, 0.08);
     group.add(mag);
-    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.12, 0.24), mat);
-    stock.position.set(0, 0, -0.4);
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.17, 0.38),
+      new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.4, metalness: 0.6 }));
+    stock.position.set(0, 0, -0.64);
     group.add(stock);
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.06, 0.2),
+      new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x22d3ee, emissiveIntensity: 1.4 }));
+    stripe.position.set(0, 0.12, 0.32);
+    group.add(stripe);
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.3, 0.14),
+      new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.6 }));
+    grip.position.set(0, -0.2, -0.3);
+    group.add(grip);
   }
   return group;
 }
@@ -91,10 +111,13 @@ export function createCombat(scene, world, player, audio) {
         if (mesh.parent !== player.handMount) player.handMount.add(mesh);
         mesh.position.set(0, 0, 0);
         mesh.rotation.set(0, 0, 0);
+        mesh.scale.setScalar(1.3); // armed: oversize slightly so the weapon
+        // reads from the 9 m chase camera at night
       } else {
         if (mesh.parent !== player.backMount) player.backMount.add(mesh);
         mesh.position.set(0, 0, 0);
         mesh.rotation.set(0, 0, 0);
+        mesh.scale.setScalar(1);
       }
     }
   }
@@ -155,6 +178,7 @@ export function createCombat(scene, world, player, audio) {
   }
 
   function shoot() {
+    if (player.swimming) return false; // cannot shoot while swimming
     if (holstered || reloadTimer > 0 || fireCooldown > 0) return false;
     const w = weapons[current];
     if (w.mag <= 0) {

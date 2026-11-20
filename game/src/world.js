@@ -771,6 +771,10 @@ export function createWorld(scene) {
   // ---- API ---------------------------------------------------------------
   const spawn = { x: CONFIG.spawn.x, z: CONFIG.spawn.z, heading: CONFIG.spawn.heading };
 
+  function isInWater(x, z) {
+    return x > WATER_X0 - 2 && x <= 600 && z >= -D / 2 && z <= D / 2;
+  }
+
   function collides(x, z, r) {
     if (x > WATER_X0 - 2) return true; // water is not walkable
     for (const c of colliders) {
@@ -837,6 +841,7 @@ export function createWorld(scene) {
     },
     findOpenGround,
     collides,
+    isInWater,
     destinations,
     counts,
     boats,
@@ -861,6 +866,7 @@ export function createWorld(scene) {
     groundHeightAt: api.groundHeightAt,
     findOpenGround: api.findOpenGround,
     collides: api.collides,
+    isInWater: api.isInWater,
   };
 
   return api;
