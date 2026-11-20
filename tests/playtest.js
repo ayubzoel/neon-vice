@@ -798,7 +798,9 @@ async function main() {
       await page.evaluate(() => window.NEON_VICE.debug.setMoney(7777));
       // walkToNear teleports to 35 m out: a full 141 m walk from spawn takes
       // ~64 s real at the 0.37x SwiftShader ratio and starved the 30 s cap.
-      await walkToNear(page, 100, 100, 60000);
+      // Destination (60,100) is ON the x=60 street: (100,100) sits inside a
+      // block and the straight final leg wedged the walker on a building.
+      await walkToNear(page, 60, 100, 60000);
       await page.evaluate(() => window.NEON_VICE.game.save.save());
       const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('neonvice-save-v1') || 'null'));
       log('save writes localStorage', !!saved && saved.money === 7777, saved ? `money=${saved.money} x=${saved.x}` : 'no save');
@@ -809,7 +811,7 @@ async function main() {
       await sleep(600);
       const s = await stats(page);
       const h = await hero(page);
-      log('save/load Continue restores', contVisible && s.money === 7777 && Math.hypot(h.x - 100, h.z - 100) < 15, `money=$${s.money} pos=(${h.x.toFixed(0)},${h.z.toFixed(0)})`);
+      log('save/load Continue restores', contVisible && s.money === 7777 && Math.hypot(h.x - 60, h.z - 100) < 15, `money=$${s.money} pos=(${h.x.toFixed(0)},${h.z.toFixed(0)})`);
       log('save console errors', errors.length === 0, errors.slice(0, 3).join(' | '));
       await page.close();
     }

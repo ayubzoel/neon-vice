@@ -128,9 +128,17 @@ const shops = createShops(scene, {
 });
 
 // ---- Camera ----
+// Camera yaw: follows the player's heading, EXCEPT while the touch stick
+// is steering — then it stays frozen. The camera sits behind the player's
+// heading, so if it swung with every stick turn, "screen-right" would
+// rotate under the player and the stick would spin them in circles
+// instead of moving them right (joystick test, 2026-11-20).
+let camYaw = CONFIG.spawn.heading || 0;
 function placeCamera() {
   const target = driving ? driving.mesh.position : player.group.position;
-  const heading = driving ? driving.heading : player.heading;
+  const stick = !driving && input.read().stick;
+  if (!stick || !stick.active) camYaw = driving ? driving.heading : player.heading;
+  const heading = driving ? driving.heading : camYaw;
   const backX = -Math.sin(heading) * CONFIG.camera.distance;
   const backZ = -Math.cos(heading) * CONFIG.camera.distance;
   const dist = driving ? CONFIG.camera.distance + 3 : CONFIG.camera.distance;
