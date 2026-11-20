@@ -275,6 +275,10 @@ export function createMissions(scene, world, ctx) {
       const alive = (stageState.spawned || []).find((e) => !e.dead);
       return alive ? { x: alive.mesh.position.x, z: alive.mesh.position.z } : { x: stage.spawn[0].x, z: stage.spawn[0].z };
     }
+    if (stage.type === 'evade') {
+      // No location: the objective is to stay alive/unseen for N seconds.
+      return null;
+    }
     if (stageState.tx !== undefined) return { x: stageState.tx, z: stageState.tz };
     return { x: stage.x, z: stage.z };
   }

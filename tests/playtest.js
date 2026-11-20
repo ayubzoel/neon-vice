@@ -223,16 +223,18 @@ async function walkToNear(page, x, z, timeout = 60000, radius = 9) {
 }
 
 // Wait until the current mission stage advances / mission ends.
+// Compares mission status + stage index only: the objective TEXT counts
+// down during hold/evade stages, which would fake an advance every second.
 async function waitForAdvance(page, timeout = 60000) {
   const before = await page.evaluate(() => {
     const g = window.NEON_VICE.game;
-    return JSON.stringify({ m: g.missions.status, id: g.missions.currentDef() && g.missions.currentDef().id, s: g.missions.stageIndex, o: document.getElementById('hudObjective').textContent });
+    return JSON.stringify({ m: g.missions.status, id: g.missions.currentDef() && g.missions.currentDef().id, s: g.missions.stageIndex });
   });
   const t0 = Date.now();
   while (Date.now() - t0 < timeout) {
     const now = await page.evaluate(() => {
       const g = window.NEON_VICE.game;
-      return JSON.stringify({ m: g.missions.status, id: g.missions.currentDef() && g.missions.currentDef().id, s: g.missions.stageIndex, o: document.getElementById('hudObjective').textContent });
+      return JSON.stringify({ m: g.missions.status, id: g.missions.currentDef() && g.missions.currentDef().id, s: g.missions.stageIndex });
     });
     if (now !== before) return true;
     await sleep(400);
@@ -350,11 +352,104 @@ async function main() {
             const t = window.NEON_VICE.game.missions.stageTarget();
             return t ? [t.x, t.z] : null;
           });
-          if (!tgt) { await sleep(500); continue; }
+          if (!tgt) {
+            // Location-less stage (evade): just wait for it to finish.
+            await waitForAdvance(page, 60000);
+            continue;
+          }
           await walkToNear(page, tgt[0], tgt[1], 45000);
           await waitForAdvance(page, 45000);
         }
         return false;
+      }
+
+      // Fight the mission thugs at `spot` until the kill stage(s) advance.
+      // Returns { ok, note }. Used by missions 6/7/12 and by 10's opening stage.
+      async function playCombat(page, n, spot) {
+        // combat: exit any vehicle left over from a previous mission,
+        // clear wanted/police (mission 6 leaves 2 stars + chasers),
+        // unholster, kite to enemies, aim via debug heading, shoot.
+        if ((await stats(page)).driving) { await pressKey(page, 'KeyE'); await sleep(400); }
+        await page.evaluate(() => { window.NEON_VICE.debug.setWanted(0); window.NEON_VICE.debug.clearPolice(); });
+        await walkToNear(page, spot[0] + 20, spot[1] + 20);
+        // Un-holster deterministically: the previous mission may already
+        // have left the weapon out, and a blind H press would holster it.
+        await page.evaluate(() => {
+          if (window.NEON_VICE.game.combat.holstered) window.NEON_VICE.game.input.press('holster');
+        });
+        await sleep(300);
+        const t0 = Date.now();
+        let done = false;
+        let lastLog = 0;
+        let firing = false;
+        // Fire ONLY while aimed at a living thug in range: holding fire
+        // through the whole loop burned all 72 pistol rounds in mission
+        // 6 (mag 0, reserve 0) and left mission 7 defenseless.
+        try {
+          while (Date.now() - t0 < 150000) {
+            const st = await stats(page);
+            if (st.missionId !== n || st.mission === 'done' || st.mission === 'failed') { done = st.mission === 'done' || st.missionId !== n; break; }
+            if (Date.now() - lastLog > 10000) {
+              lastLog = Date.now();
+              const diag = await page.evaluate(() => {
+                const g = window.NEON_VICE.game;
+                const p = g.player.group.position;
+                const alive = g.combat.enemies.filter((e) => !e.dead).map((e) => `(${e.mesh.position.x.toFixed(0)},${e.mesh.position.z.toFixed(0)}):${e.hp}`);
+                return `hp=${g.player.hp} mag=${g.combat.weapons[g.combat.current].mag} holstered=${g.combat.holstered} wanted=${g.combat.wanted} police=${g.combat.police.filter((e) => !e.dead).length} pos=(${p.x.toFixed(0)},${p.z.toFixed(0)}) alive=[${alive.join(' ')}]`;
+              });
+              console.log(`  combat[${n}] t=${((Date.now() - t0) / 1000).toFixed(0)}s ${diag}`);
+            }
+            // Stand and fight (the isolated probe kills all thugs in
+            // ~9 s this way): teleport-kiting breaks the fight because
+            // the thugs then have to be chased back through buildings.
+            // Heal in place instead.
+            if (st.hp < 50) {
+              await page.evaluate(() => window.NEON_VICE.debug.setHp(100));
+              await sleep(200);
+              continue;
+            }
+            const aim = await page.evaluate(() => {
+              const g = window.NEON_VICE.game;
+              const p = g.player.group.position;
+              // Mission thugs only — police are a distraction that
+              // respawns while wanted > 0 and would eat all the shots.
+              const list = [...g.combat.enemies].filter((e) => !e.dead);
+              if (!list.length) return { aimed: false };
+              list.sort((a, b) => {
+                const da = Math.hypot(a.mesh.position.x - p.x, a.mesh.position.z - p.z);
+                const db = Math.hypot(b.mesh.position.x - p.x, b.mesh.position.z - p.z);
+                return da - db;
+              });
+              const e = list[0];
+              const dist = Math.hypot(e.mesh.position.x - p.x, e.mesh.position.z - p.z);
+              g.player.heading = Math.atan2(e.mesh.position.x - p.x, e.mesh.position.z - p.z);
+              return { aimed: true, dist, x: e.mesh.position.x, z: e.mesh.position.z };
+            });
+            if (aim.aimed && aim.dist < 55) {
+              if (!firing) { await page.mouse.down(); firing = true; }
+              await sleep(400); // firing while aimed
+            } else {
+              if (firing) { await page.mouse.up(); firing = false; }
+              if (aim.aimed) {
+                // Too far to hit: close the distance first.
+                await walkToNear(page, aim.x, aim.z, 30000);
+              } else {
+                // No enemies left — follow the live stage target.
+                const tgt = await page.evaluate(() => {
+                  const t = window.NEON_VICE.game.missions.stageTarget();
+                  return t ? [t.x, t.z] : null;
+                });
+                if (tgt) {
+                  await walkToNear(page, tgt[0], tgt[1], 30000);
+                  await waitForAdvance(page, 40000);
+                } else await sleep(500);
+              }
+            }
+          }
+        } finally {
+          await page.mouse.up();
+        }
+        return { ok: done, note: done ? 'combat stages cleared' : (await stats(page)).mission === 'failed' ? 'mission failed (Vera went down?)' : 'timed out in combat' };
       }
 
       for (let n = fromN; n <= toN; n += 1) {
@@ -365,6 +460,13 @@ async function main() {
         let note = '';
         try {
           if (n === 4 || n === 10) {
+            // Mission 10 opens with a kill stage (impound guards) — clear
+            // them before touching the car.
+            if (n === 10) {
+              const c = await playCombat(page, 10, P.impound);
+              if (!c.ok) { ok = false; note = c.note; }
+            }
+            if (ok || n === 4) {
             // enter vehicle: exit any car left over from a previous mission,
             // walk to the live stage target, press E, drive on
             if ((await stats(page)).driving) { await pressKey(page, 'KeyE'); await sleep(400); }
@@ -387,6 +489,7 @@ async function main() {
                 if (ok) { await pressKey(page, 'KeyE'); await sleep(300); }
               } else { note = 'no drive target'; }
             } else { note = 'could not enter vehicle'; }
+            }
           } else if (n === 5) {
             // race in the plaza car: walk to the car itself, not the plaza point
             const carPos = await page.evaluate(() => {
@@ -424,93 +527,10 @@ async function main() {
               note = note || 'checkpoints done';
             }
           } else if (n === 6 || n === 7 || n === 12) {
-            // combat: exit any vehicle left over from a previous mission,
-            // clear wanted/police (mission 6 leaves 2 stars + chasers),
-            // unholster, kite to enemies, aim via debug heading, shoot.
-            if ((await stats(page)).driving) { await pressKey(page, 'KeyE'); await sleep(400); }
-            await page.evaluate(() => { window.NEON_VICE.debug.setWanted(0); window.NEON_VICE.debug.clearPolice(); });
             const spot = n === 6 ? P.southBeach : n === 7 ? P.warehouse : P.yacht;
-            await walkToNear(page, spot[0] + 20, spot[1] + 20);
-            // Un-holster deterministically: the previous mission may already
-            // have left the weapon out, and a blind H press would holster it.
-            await page.evaluate(() => {
-              if (window.NEON_VICE.game.combat.holstered) window.NEON_VICE.game.input.press('holster');
-            });
-            await sleep(300);
-            const t0 = Date.now();
-            let done = false;
-            let lastLog = 0;
-            let firing = false;
-            // Fire ONLY while aimed at a living thug in range: holding fire
-            // through the whole loop burned all 72 pistol rounds in mission
-            // 6 (mag 0, reserve 0) and left mission 7 defenseless.
-            try {
-              while (Date.now() - t0 < 150000) {
-                const st = await stats(page);
-                if (st.missionId !== n || st.mission === 'done' || st.mission === 'failed') { done = st.mission === 'done' || st.missionId !== n; break; }
-                if (Date.now() - lastLog > 10000) {
-                  lastLog = Date.now();
-                  const diag = await page.evaluate(() => {
-                    const g = window.NEON_VICE.game;
-                    const p = g.player.group.position;
-                    const alive = g.combat.enemies.filter((e) => !e.dead).map((e) => `(${e.mesh.position.x.toFixed(0)},${e.mesh.position.z.toFixed(0)}):${e.hp}`);
-                    return `hp=${g.player.hp} mag=${g.combat.weapons[g.combat.current].mag} holstered=${g.combat.holstered} wanted=${g.combat.wanted} police=${g.combat.police.filter((e) => !e.dead).length} pos=(${p.x.toFixed(0)},${p.z.toFixed(0)}) alive=[${alive.join(' ')}]`;
-                  });
-                  console.log(`  combat[${n}] t=${((Date.now() - t0) / 1000).toFixed(0)}s ${diag}`);
-                }
-                // Stand and fight (the isolated probe kills all thugs in
-                // ~9 s this way): teleport-kiting breaks the fight because
-                // the thugs then have to be chased back through buildings.
-                // Heal in place instead.
-                if (st.hp < 50) {
-                  await page.evaluate(() => window.NEON_VICE.debug.setHp(100));
-                  await sleep(200);
-                  continue;
-                }
-                const aim = await page.evaluate(() => {
-                  const g = window.NEON_VICE.game;
-                  const p = g.player.group.position;
-                  // Mission thugs only — police are a distraction that
-                  // respawns while wanted > 0 and would eat all the shots.
-                  const list = [...g.combat.enemies].filter((e) => !e.dead);
-                  if (!list.length) return { aimed: false };
-                  list.sort((a, b) => {
-                    const da = Math.hypot(a.mesh.position.x - p.x, a.mesh.position.z - p.z);
-                    const db = Math.hypot(b.mesh.position.x - p.x, b.mesh.position.z - p.z);
-                    return da - db;
-                  });
-                  const e = list[0];
-                  const dist = Math.hypot(e.mesh.position.x - p.x, e.mesh.position.z - p.z);
-                  g.player.heading = Math.atan2(e.mesh.position.x - p.x, e.mesh.position.z - p.z);
-                  return { aimed: true, dist, x: e.mesh.position.x, z: e.mesh.position.z };
-                });
-                if (aim.aimed && aim.dist < 55) {
-                  if (!firing) { await page.mouse.down(); firing = true; }
-                  await sleep(400); // firing while aimed
-                } else {
-                  if (firing) { await page.mouse.up(); firing = false; }
-                  if (aim.aimed) {
-                    // Too far to hit: close the distance first.
-                    await walkToNear(page, aim.x, aim.z, 30000);
-                  } else {
-                    // No enemies left — follow the live stage target.
-                    const tgt = await page.evaluate(() => {
-                      const t = window.NEON_VICE.game.missions.stageTarget();
-                      return t ? [t.x, t.z] : null;
-                    });
-                    if (tgt) {
-                      await walkToNear(page, tgt[0], tgt[1], 30000);
-                      await waitForAdvance(page, 40000);
-                    } else await sleep(500);
-                  }
-                }
-              }
-            } finally {
-              await page.mouse.up();
-            }
-            ok = done;
-            note = done ? 'combat stages cleared' : (await stats(page)).mission === 'failed' ? 'mission failed (Vera went down?)' : 'timed out in combat';
-            if (n === 12 && done) {
+            const c = await playCombat(page, n, spot);
+            ok = c.ok; note = c.note;
+            if (n === 12 && ok) {
               ok = await playGoto(12, 120000);
               note = 'hold + deliver via goto runner';
             }
