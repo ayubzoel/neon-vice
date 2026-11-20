@@ -659,15 +659,33 @@ async function main() {
       ok = await walkToNear(page, 100, 400, 60000);
       log('side job package', ok, '');
       await page.evaluate(() => window.NEON_VICE.debug.startSideJob('race'));
-      // race in the plaza car
+      // race in the plaza car — follow the game's LIVE (road-snapped)
+      // checkpoints, not the raw coords: the raw points sit inside blocks
+      // and the car wedges into a building driving straight at them.
       await walkToNear(page, 12, 12, 45000, 4);
       await pressKey(page, 'KeyE');
       await sleep(400);
       ok = true;
-      for (const cp of [[200, 150], [-200, -150], [0, 0]]) {
-        ok = ok && await driveTo(page, cp[0], cp[1], 90000);
+      const raceMoney0 = (await stats(page)).money;
+      for (let i = 0; i < 3; i += 1) {
+        const cp = await page.evaluate(() => {
+          const j = window.NEON_VICE.game.missions.sideJob;
+          return j && j.checkpoints && j.checkpoints[j.cpIndex] ? [j.checkpoints[j.cpIndex].x, j.checkpoints[j.cpIndex].z] : null;
+        });
+        if (!cp) break;
+        const doneCheck = async () => {
+          const j = await page.evaluate(() => {
+            const s = window.NEON_VICE.game.missions.sideJob;
+            return s ? s.cpIndex : -1;
+          });
+          return j === -1 || j > i;
+        };
+        const r = await driveTo(page, cp[0], cp[1], 90000, { doneCheck });
+        if (!r) { ok = false; break; }
       }
-      log('side job street race (car)', ok, '');
+      const raceDone = await waitFor(page, () => window.NEON_VICE.game.missions.sideJob === null, 10000, 'race payout');
+      ok = ok && raceDone && (await stats(page)).money === raceMoney0 + 800;
+      log('side job street race (car)', ok, `money $${raceMoney0} → $${(await stats(page)).money}`);
       log('sidejob console errors', errors.length === 0, errors.slice(0, 3).join(' | '));
       await page.close();
     }
@@ -706,8 +724,10 @@ async function main() {
       dead = await page.evaluate(() => window.NEON_VICE.game.combat.enemies.every((e) => e.dead));
       const wanted = await stats(page).then((s) => s.wanted);
       log('combat shoot kills enemy', dead, `wanted=${wanted}`);
-      // Wanted decay: wait for stars to drop (25s per star, max 3 -> up to 75s).
-      const decayed = await waitFor(page, () => window.NEON_VICE.stats().wanted === 0, 90000, 'wanted decay');
+      // Wanted decay: wait for stars to drop. Each star needs 25 game-s,
+      // and under SwiftShader the game runs at ~0.37x real time (the 0.12 s
+      // dt clamp caps it at low FPS), so 2 stars take ~140 s real.
+      const decayed = await waitFor(page, () => window.NEON_VICE.stats().wanted === 0, 200000, 'wanted decay');
       log('wanted decays to 0', decayed, '');
       log('combat console errors', errors.length === 0, errors.slice(0, 3).join(' | '));
       await page.close();
