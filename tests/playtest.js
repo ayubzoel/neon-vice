@@ -300,8 +300,19 @@ async function main() {
               } else { note = 'no drive target'; }
             } else { note = 'could not enter vehicle'; }
           } else if (n === 5) {
-            // race in the plaza car, teleporting near each live checkpoint
-            await walkToNear(page, 12, 12, 45000, 4);
+            // race in the plaza car: walk to the car itself, not the plaza point
+            const carPos = await page.evaluate(() => {
+              const g = window.NEON_VICE.game;
+              const p = g.player.group.position;
+              let best = null;
+              let bestD = Infinity;
+              for (const v of g.vehicles.list) {
+                const d = Math.hypot(v.mesh.position.x - p.x, v.mesh.position.z - p.z);
+                if (v.kind !== 'boat' && d < bestD) { bestD = d; best = v; }
+              }
+              return best ? [best.mesh.position.x, best.mesh.position.z] : null;
+            });
+            if (carPos) await walkToNear(page, carPos[0], carPos[1], 45000, 4);
             await pressKey(page, 'KeyE');
             await sleep(400);
             const s1 = await stats(page);
@@ -330,55 +341,65 @@ async function main() {
             await sleep(200);
             const t0 = Date.now();
             let done = false;
-            while (Date.now() - t0 < 150000) {
-              const st = await stats(page);
-              if (st.missionId !== n || st.mission === 'done') { done = true; break; }
-              if (st.hp < 40) {
-                await page.evaluate(() => {
+            // Hold the fire button: at ~3 FPS a 50 ms click falls between
+            // frames and is never seen by the polled mouseDown flag.
+            await page.mouse.down();
+            try {
+              while (Date.now() - t0 < 150000) {
+                const st = await stats(page);
+                if (st.missionId !== n || st.mission === 'done' || st.mission === 'failed') { done = st.mission === 'done' || st.missionId !== n; break; }
+                if (st.hp < 40) {
+                  await page.evaluate(() => {
+                    const g = window.NEON_VICE.game;
+                    const p = g.player.group.position;
+                    const list = [...g.combat.enemies, ...g.combat.police].filter((e) => !e.dead);
+                    if (!list.length) return;
+                    const e = list[0];
+                    const dx = p.x - e.mesh.position.x, dz = p.z - e.mesh.position.z;
+                    const d = Math.hypot(dx, dz) || 1;
+                    window.NEON_VICE.debug.teleport(p.x + (dx / d) * 40, p.z + (dz / d) * 40);
+                    window.NEON_VICE.debug.setHp(100);
+                  });
+                  await sleep(300);
+                  continue;
+                }
+                const aim = await page.evaluate(() => {
                   const g = window.NEON_VICE.game;
                   const p = g.player.group.position;
                   const list = [...g.combat.enemies, ...g.combat.police].filter((e) => !e.dead);
-                  if (!list.length) return;
+                  if (!list.length) return { aimed: false };
+                  list.sort((a, b) => {
+                    const da = Math.hypot(a.mesh.position.x - p.x, a.mesh.position.z - p.z);
+                    const db = Math.hypot(b.mesh.position.x - p.x, b.mesh.position.z - p.z);
+                    return da - db;
+                  });
                   const e = list[0];
-                  const dx = p.x - e.mesh.position.x, dz = p.z - e.mesh.position.z;
-                  const d = Math.hypot(dx, dz) || 1;
-                  window.NEON_VICE.debug.teleport(p.x + (dx / d) * 40, p.z + (dz / d) * 40);
-                  window.NEON_VICE.debug.setHp(100);
+                  const dist = Math.hypot(e.mesh.position.x - p.x, e.mesh.position.z - p.z);
+                  g.player.heading = Math.atan2(e.mesh.position.x - p.x, e.mesh.position.z - p.z);
+                  return { aimed: true, dist, x: e.mesh.position.x, z: e.mesh.position.z };
                 });
-                await sleep(300);
-                continue;
+                if (aim.aimed && aim.dist < 55) {
+                  await sleep(400); // firing (mouse held down)
+                } else if (aim.aimed) {
+                  // Too far to hit: close the distance first.
+                  await walkToNear(page, aim.x, aim.z, 30000);
+                } else {
+                  // No enemies left — follow the live stage target.
+                  const tgt = await page.evaluate(() => {
+                    const t = window.NEON_VICE.game.missions.stageTarget();
+                    return t ? [t.x, t.z] : null;
+                  });
+                  if (tgt) {
+                    await walkToNear(page, tgt[0], tgt[1], 30000);
+                    await waitForAdvance(page, 40000);
+                  } else await sleep(500);
+                }
               }
-              const aimed = await page.evaluate(() => {
-                const g = window.NEON_VICE.game;
-                const p = g.player.group.position;
-                const list = [...g.combat.enemies, ...g.combat.police].filter((e) => !e.dead);
-                if (!list.length) return false;
-                list.sort((a, b) => {
-                  const da = Math.hypot(a.mesh.position.x - p.x, a.mesh.position.z - p.z);
-                  const db = Math.hypot(b.mesh.position.x - p.x, b.mesh.position.z - p.z);
-                  return da - db;
-                });
-                const e = list[0];
-                g.player.heading = Math.atan2(e.mesh.position.x - p.x, e.mesh.position.z - p.z);
-                return true;
-              });
-              if (aimed) {
-                await page.mouse.click(320, 200);
-                await sleep(250);
-              } else {
-                // No enemies left — follow the live stage target.
-                const tgt = await page.evaluate(() => {
-                  const t = window.NEON_VICE.game.missions.stageTarget();
-                  return t ? [t.x, t.z] : null;
-                });
-                if (tgt) {
-                  await walkToNear(page, tgt[0], tgt[1], 30000);
-                  await waitForAdvance(page, 40000);
-                } else await sleep(500);
-              }
+            } finally {
+              await page.mouse.up();
             }
             ok = done;
-            note = done ? 'combat stages cleared' : 'timed out in combat';
+            note = done ? 'combat stages cleared' : (await stats(page)).mission === 'failed' ? 'mission failed (Vera went down?)' : 'timed out in combat';
             if (n === 12 && done) {
               ok = await playGoto(12, 120000);
               note = 'hold + deliver via goto runner';
@@ -471,13 +492,16 @@ async function main() {
         g.combat.spawnEnemy(p.x + Math.sin(g.player.heading) * 15, p.z + Math.cos(g.player.heading) * 15);
       });
       await pressKey(page, 'KeyH');
-      for (let i = 0; i < 20; i += 1) {
-        await page.mouse.click(320, 200);
-        await sleep(250);
-        const dead = await page.evaluate(() => window.NEON_VICE.game.combat.enemies.every((e) => e.dead));
+      // Hold fire: at ~3 FPS a quick click falls between frames.
+      await page.mouse.down();
+      let dead = false;
+      for (let i = 0; i < 40; i += 1) {
+        await sleep(500);
+        dead = await page.evaluate(() => window.NEON_VICE.game.combat.enemies.every((e) => e.dead));
         if (dead) break;
       }
-      const dead = await page.evaluate(() => window.NEON_VICE.game.combat.enemies.every((e) => e.dead));
+      await page.mouse.up();
+      dead = await page.evaluate(() => window.NEON_VICE.game.combat.enemies.every((e) => e.dead));
       const wanted = await stats(page).then((s) => s.wanted);
       log('combat shoot kills enemy', dead, `wanted=${wanted}`);
       // Wanted decay: wait for stars to drop (25s per star, max 3 -> up to 75s).

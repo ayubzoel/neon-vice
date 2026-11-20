@@ -53,7 +53,9 @@ function normalizeWorld(raw) {
     destinations: raw.destinations || null,
     groundHeightAt: typeof raw.groundHeightAt === 'function' ? (x, z) => raw.groundHeightAt(x, z) : () => 0,
     findOpenGround: typeof raw.findOpenGround === 'function'
-      ? (x, z, r) => raw.findOpenGround(x, z, r) : (x, z) => ({ x, z }),
+      // B's findOpenGround returns null when nothing is open within maxR;
+      // callers expect a point, so fall back to the raw coordinates.
+      ? (x, z, r) => raw.findOpenGround(x, z, r) || { x, z } : (x, z) => ({ x, z }),
     counts: raw.counts || {},
   };
 }
