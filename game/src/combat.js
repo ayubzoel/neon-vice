@@ -100,6 +100,9 @@ export function createCombat(scene, world, player, audio) {
   let policeSpawnTimer = 0;
 
   function refreshWeaponVisibility() {
+    // Tell the player rig whether the weapon is in hand: armed, the right
+    // arm holds the aim pose; holstered, it swings with the walk.
+    player.armed = !holstered;
     for (const [kind, mesh] of Object.entries(weaponMeshes)) {
       const owned = weapons[kind].owned;
       const isCurrent = kind === current;
