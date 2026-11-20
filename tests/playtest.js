@@ -351,15 +351,15 @@ async function main() {
             if (!s1.driving) { note = 'could not enter car for race'; }
             else {
               ok = true;
+              // Drive the road-graph route to each live checkpoint (no
+              // teleport: teleporting the car into a block strands it).
               for (let i = 0; i < 4; i += 1) {
                 const cp = await page.evaluate(() => {
                   const t = window.NEON_VICE.game.missions.stageTarget();
                   return t ? [t.x, t.z] : null;
                 });
                 if (!cp) break;
-                await dbg(page, `window.NEON_VICE.debug.teleport(${(cp[0] - 30).toFixed(1)}, ${(cp[1] - 30).toFixed(1)})`);
-                await sleep(300);
-                const r = await driveTo(page, cp[0], cp[1], 60000);
+                const r = await driveTo(page, cp[0], cp[1], 90000);
                 if (!r) { note = `checkpoint ${cp} missed`; ok = false; break; }
               }
               if (ok) ok = await waitFor(page, () => window.NEON_VICE.stats().missionId !== 5 || window.NEON_VICE.stats().mission === 'done', 8000, 'race complete');
@@ -493,9 +493,7 @@ async function main() {
       await sleep(400);
       ok = true;
       for (const cp of [[200, 150], [-200, -150], [0, 0]]) {
-        await dbg(page, `window.NEON_VICE.debug.teleport(${(cp[0] - 30).toFixed(1)}, ${(cp[1] - 30).toFixed(1)})`);
-        await sleep(300);
-        ok = ok && await driveTo(page, cp[0], cp[1], 60000);
+        ok = ok && await driveTo(page, cp[0], cp[1], 90000);
       }
       log('side job street race (car)', ok, '');
       log('sidejob console errors', errors.length === 0, errors.slice(0, 3).join(' | '));
