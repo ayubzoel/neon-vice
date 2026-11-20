@@ -161,7 +161,17 @@ async function driveLeg(page, x, z, timeout = 90000) {
     let diff = desired - h.heading;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
-    await page.keyboard.down('KeyW');
+    // Approach control: a car at 30 m/s jumps 12 m per frame and overshoots
+    // a 12 m acceptance radius forever. Brake under 30 m, creep under 3 m/s.
+    if (dist > 30) {
+      await page.keyboard.down('KeyW'); await page.keyboard.up('KeyS');
+    } else if (s.speed > 8) {
+      await page.keyboard.up('KeyW'); await page.keyboard.down('KeyS');
+    } else if (s.speed < 3) {
+      await page.keyboard.down('KeyW'); await page.keyboard.up('KeyS');
+    } else {
+      await page.keyboard.up('KeyW'); await page.keyboard.up('KeyS');
+    }
     // Steering: heading decreases (D) turns right; if target is to the right (diff<0) press D.
     if (diff > 0.12) { await page.keyboard.down('KeyA'); await page.keyboard.up('KeyD'); }
     else if (diff < -0.12) { await page.keyboard.down('KeyD'); await page.keyboard.up('KeyA'); }
@@ -378,8 +388,10 @@ async function main() {
             }
           } else if (n === 6 || n === 7 || n === 12) {
             // combat: exit any vehicle left over from a previous mission,
+            // clear wanted/police (mission 6 leaves 2 stars + chasers),
             // unholster, kite to enemies, aim via debug heading, shoot.
             if ((await stats(page)).driving) { await pressKey(page, 'KeyE'); await sleep(400); }
+            await page.evaluate(() => { window.NEON_VICE.debug.setWanted(0); window.NEON_VICE.debug.clearPolice(); });
             const spot = n === 6 ? P.southBeach : n === 7 ? P.warehouse : P.yacht;
             await walkToNear(page, spot[0] + 20, spot[1] + 20);
             await pressKey(page, 'KeyH');
@@ -411,7 +423,9 @@ async function main() {
                 const aim = await page.evaluate(() => {
                   const g = window.NEON_VICE.game;
                   const p = g.player.group.position;
-                  const list = [...g.combat.enemies, ...g.combat.police].filter((e) => !e.dead);
+                  // Mission thugs only — police are a distraction that
+                  // respawns while wanted > 0 and would eat all the shots.
+                  const list = [...g.combat.enemies].filter((e) => !e.dead);
                   if (!list.length) return { aimed: false };
                   list.sort((a, b) => {
                     const da = Math.hypot(a.mesh.position.x - p.x, a.mesh.position.z - p.z);

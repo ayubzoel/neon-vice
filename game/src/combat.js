@@ -132,6 +132,11 @@ export function createCombat(scene, world, player, audio) {
     }
   }
 
+  function clearPolice() {
+    for (const p of police) scene.remove(p.mesh);
+    police.length = 0;
+  }
+
   function commitCrime(stars) {
     wanted = Math.min(CONFIG.wanted.max, Math.max(wanted, stars));
     lastCrimeAt = gameTime;
@@ -236,6 +241,7 @@ export function createCombat(scene, world, player, audio) {
     spawnEnemy,
     spawnPolice,
     clearEnemies,
+    clearPolice,
     commitCrime,
     shoot,
     reload,
