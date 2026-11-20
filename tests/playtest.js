@@ -386,7 +386,7 @@ async function main() {
         const t0 = Date.now();
         while (Date.now() - t0 < maxMs) {
           const st = await stats(page);
-          if (st.missionId !== n || st.mission === 'done') return true;
+          if (st.missionId !== n || st.mission === 'done' || st.mission === 'complete') return true;
           const tgt = await page.evaluate(() => {
             const t = window.NEON_VICE.game.missions.stageTarget();
             return t ? [t.x, t.z] : null;
@@ -445,7 +445,7 @@ async function main() {
             const st = await stats(page);
             const curStage = await page.evaluate(() => window.NEON_VICE.game.missions.stageIndex);
             if (st.mission === 'failed') { done = false; break; }
-            if (st.missionId !== n || st.mission === 'done' || curStage !== entryStage) { done = true; break; }
+            if (st.missionId !== n || st.mission === 'done' || st.mission === 'complete' || curStage !== entryStage) { done = true; break; }
             if (Date.now() - lastLog > 10000) {
               lastLog = Date.now();
               const diag = await page.evaluate(() => {
@@ -592,7 +592,7 @@ async function main() {
                 const r = await driveTo(page, cp[0], cp[1], 90000, { doneCheck: targetMoved(page, cp[0], cp[1]) });
                 if (!r) { note = `checkpoint ${cp} missed`; ok = false; break; }
               }
-              if (ok) ok = await waitFor(page, () => window.NEON_VICE.stats().missionId !== 5 || window.NEON_VICE.stats().mission === 'done', 8000, 'race complete');
+              if (ok) ok = await waitFor(page, () => window.NEON_VICE.stats().missionId !== 5 || window.NEON_VICE.stats().mission === 'done' || window.NEON_VICE.stats().mission === 'complete', 8000, 'race complete');
               note = note || 'checkpoints done';
             }
           } else if (n === 6 || n === 7 || n === 12) {
