@@ -234,7 +234,19 @@ export function createMissions(scene, world, ctx) {
     } else if (stage.type === 'race') {
       stageState.cpIndex = 0;
       stageState.timeLeft = stage.timeLimit;
-      stageState.checkpoints = stage.checkpoints.map((cp) => snap(cp.x, cp.z));
+      // Race checkpoints are for cars: snap them onto the nearest ROAD, not
+      // just open ground — (0,300) sits on the Polsek Beach plot, and open
+      // ground next to it wedges the car against the station wall.
+      stageState.checkpoints = stage.checkpoints.map((cp) => {
+        try {
+          const rg = ctx.world && ctx.world.roadGraph;
+          if (rg && rg.nearestOnRoad) {
+            const p = rg.nearestOnRoad(cp.x, cp.z);
+            if (p && typeof p.x === 'number') return { x: p.x, z: p.z };
+          }
+        } catch { /* fall through to the ground snap */ }
+        return snap(cp.x, cp.z);
+      });
     } else if (stage.type === 'hold') {
       stageState.progress = 0;
       const spot = snap(stage.x, stage.z);
@@ -396,9 +408,19 @@ export function createMissions(scene, world, ctx) {
       placeBeacon(sideJob.to.x, sideJob.to.z);
       ctx.onObjective('Package: deliver to South Beach in 120s');
     } else if (kind === 'race') {
+      const snapRoad = (x, z) => {
+        try {
+          const rg = ctx.world && ctx.world.roadGraph;
+          if (rg && rg.nearestOnRoad) {
+            const p = rg.nearestOnRoad(x, z);
+            if (p && typeof p.x === 'number') return { x: p.x, z: p.z };
+          }
+        } catch { /* fall through */ }
+        return { x, z };
+      };
       sideJob = {
         kind, stage: 'race', cpIndex: 0, timeLeft: 90, pay: 800,
-        checkpoints: [{ x: 200, z: 150 }, { x: -200, z: -150 }, { x: 0, z: 0 }],
+        checkpoints: [{ x: 200, z: 150 }, { x: -200, z: -150 }, { x: 0, z: 0 }].map((cp) => snapRoad(cp.x, cp.z)),
       };
       placeBeacon(sideJob.checkpoints[0].x, sideJob.checkpoints[0].z);
       ctx.onObjective('Street race: 3 checkpoints in 90s');
