@@ -484,7 +484,7 @@ function frame(now) {
         mission: missions.status, missionId: missions.currentDef()?.id ?? null,
         driving: !!driving, hour: weather.hour, raining: weather.raining,
       }),
-      game: { player, vehicles, combat, missions, shops, weather, save, map: mapSys, ui, audio, input },
+      game: { player, vehicles, combat, missions, shops, weather, save, map: mapSys, ui, audio, input, world },
       debug: {
         startMission: (n) => {
           const def = missions.startMission(n);

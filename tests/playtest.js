@@ -104,7 +104,37 @@ async function walkTo(page, x, z, timeout = 60000, radius = 9) {
 }
 
 // Drive the current vehicle toward a target (W + A/D steering).
-async function driveTo(page, x, z, timeout = 90000) {
+// On land the route follows the road graph (straight lines cross buildings);
+// on water (opts.direct) it steers straight at the target.
+async function driveTo(page, x, z, timeout = 90000, opts = {}) {
+  const legs = [];
+  if (!opts.direct) {
+    const path = await page.evaluate(([tx, tz]) => {
+      const g = window.NEON_VICE.game;
+      const rg = g.world && g.world.roadGraph;
+      if (!rg || !rg.findPath) return null;
+      const h = g.player.group.position;
+      try {
+        return rg.findPath({ x: h.x, z: h.z }, { x: tx, z: tz });
+      } catch {
+        return null;
+      }
+    }, [x, z]);
+    if (path && path.length > 1) {
+      for (const p of path) legs.push([p.x, p.z]);
+    }
+  }
+  legs.push([x, z]);
+  const t0 = Date.now();
+  for (const [lx, lz] of legs) {
+    const legOk = await driveLeg(page, lx, lz, Math.max(20000, timeout - (Date.now() - t0)));
+    if (!legOk) return false;
+    if (Date.now() - t0 > timeout) return false;
+  }
+  return true;
+}
+
+async function driveLeg(page, x, z, timeout = 90000) {
   const t0 = Date.now();
   let lastDist = Infinity;
   let stuck = 0;
@@ -419,7 +449,7 @@ async function main() {
                 return t ? [t.x, t.z] : null;
               });
               if (tgt) {
-                ok = await driveTo(page, tgt[0], tgt[1], 150000);
+                ok = await driveTo(page, tgt[0], tgt[1], 150000, { direct: true });
                 note = ok ? 'sailed to north bay' : 'boat drive failed';
               } else note = 'no sail target';
             } else note = 'could not board boat';
