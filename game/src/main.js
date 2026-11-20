@@ -8,7 +8,7 @@
 import { CONFIG } from './config.js';
 import { createWorld } from './world.js';
 import { createPlayer } from './player.js';
-import { createInput } from './input.js';
+import { createInput, getBindings } from './input.js';
 import { createAudio } from './audio.js';
 import { createWeather } from './weather.js';
 import { createVehicles } from './vehicles.js';
@@ -95,9 +95,14 @@ const vehicles = createVehicles(scene, world);
 const ambient = createAmbient(scene, world, vehicles, { isDriven: (v) => v === driving });
 const combat = createCombat(scene, world, player, audio);
 
-const settings = { lang: 'en', volume: 0.7, quality: softwareGL ? 'low' : 'high' };
+const settings = { lang: 'en', volume: 0.7, musicVolume: 0.8, sfxVolume: 0.9, muted: false, quality: softwareGL ? 'low' : 'high' };
 const ui = createUI(settings);
 const mapSys = createMap(world);
+
+// Jackets Vera owns (hex colours). Teal is the starting jacket; buying one
+// at Vice Threads adds it here, and Backpack equips owned ones for free.
+// Persisted in the save (save.js) so the collection survives reload.
+let ownedJackets = [CONFIG.colors.heroBody];
 
 let money = CONFIG.money.start;
 let state = 'title'; // 'title' | 'playing'
@@ -142,6 +147,7 @@ const missions = createMissions(scene, world, {
 const save = createSave({
   player, combat, missions, weather, settings,
   getMoney: () => money,
+  getOwnedJackets: () => ownedJackets.slice(),
 });
 // shops ctx
 const shops = createShops(scene, {
@@ -200,13 +206,38 @@ function applyLoadedSave(data) {
     if (data.weapons.current) combat.switchWeapon(data.weapons.current);
   }
   if (data.jacketColor) player.setJacket(data.jacketColor);
+  if (Array.isArray(data.ownedJackets) && data.ownedJackets.length) {
+    ownedJackets = data.ownedJackets.filter((c) => typeof c === 'number');
+    if (!ownedJackets.includes(player.jacketColor)) ownedJackets.push(player.jacketColor);
+  } else if (data.jacketColor) {
+    ownedJackets = [data.jacketColor];
+  }
   if (data.missions) missions.setState(data.missions);
   if (typeof data.hour === 'number') weather.setHour(data.hour);
   if (data.lang) { settings.lang = data.lang; ui.setLang(data.lang); }
   if (typeof data.volume === 'number') { settings.volume = data.volume; audio.setVolume(data.volume); }
+  if (typeof data.musicVolume === 'number') { settings.musicVolume = data.musicVolume; audio.setMusicVolume(data.musicVolume); }
+  if (typeof data.sfxVolume === 'number') { settings.sfxVolume = data.sfxVolume; audio.setSfxVolume(data.sfxVolume); }
+  if (typeof data.muted === 'boolean') { settings.muted = data.muted; audio.setMuted(data.muted); }
   if (data.quality) settings.quality = data.quality;
   applyQuality();
+  syncSettingsInputs();
   ui.setMoney(money);
+}
+
+// Keep the Settings panel controls in sync with the live settings object
+// (used after loading a save, and every time the panel opens).
+function syncSettingsInputs() {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set('volSlider', settings.volume);
+  set('musicSlider', settings.musicVolume);
+  set('sfxSlider', settings.sfxVolume);
+  const mute = document.getElementById('muteChk');
+  if (mute) mute.checked = !!settings.muted;
+  const q = document.getElementById('qualitySel');
+  if (q) q.value = settings.quality;
+  const l = document.getElementById('langSel');
+  if (l) l.value = settings.lang;
 }
 
 function startGame(fromSave) {
@@ -230,10 +261,13 @@ function startGame(fromSave) {
   // viewport showed it). The HUD state line gets touch wording too.
   const isTouch = document.body.classList.contains('touch-device');
   for (const id of ['hud', 'minimap']) document.getElementById(id)?.classList.remove('hidden');
+  // Desktop quick buttons (MAP / PACK / SET, top-right under the minimap).
+  // On touch devices the CSS hides them — the #touch buttons serve instead.
+  document.getElementById('quickBtns')?.classList.remove('hidden');
   if (!isTouch) document.getElementById('hudHint')?.classList.remove('hidden');
   hudState.textContent = isTouch
     ? 'Playing — left stick to move · buttons to act'
-    : 'Playing — WASD move · E interact · M map · B phone';
+    : 'Playing — WASD move · E interact · M map · B backpack · Esc settings';
   audio.unlock();
   ui.setMoney(money);
   ui.toast(fromSave ? 'Save loaded. Welcome back, Vera.' : 'Vera owes Rico $50,000. Mission 1 is waiting — open your phone (B).', 5000);
@@ -326,6 +360,10 @@ function openShop(shop) {
     btn.addEventListener('click', () => {
       const res = shops.buy(shop.id, item.id);
       ui.toast(res.message);
+      // A jacket bought here joins the Backpack collection (equip free there).
+      if (res.ok && item.color !== undefined && !ownedJackets.includes(item.color)) {
+        ownedJackets.push(item.color);
+      }
       if (res.ok) openShop(shop); // refresh owned state
     });
     row.appendChild(btn);
@@ -339,10 +377,79 @@ function closeShop() {
   if (overlay === 'shop') overlay = null;
 }
 
-function openPhone() {
-  paused = true;
-  overlay = 'phone';
-  const panel = document.getElementById('phonePanel');
+// ---- Backpack / Phone (one combined panel, two tabs) ----
+// B (and the PACK touch button) opens it on the Backpack tab; the Phone tab
+// holds exactly the old Phone contents (side jobs, mission list, restart),
+// so nothing the harness or the player relied on goes away. Overlay name
+// stays 'phone' so the pause handling below is unchanged.
+const JACKET_HEX = (c) => `#${c.toString(16).padStart(6, '0')}`;
+let packTab = 'backpack'; // 'backpack' | 'phone'
+
+function renderBackpackTab() {
+  const list = document.getElementById('backpackItems');
+  if (!list) return;
+  list.innerHTML = '';
+  // Holster state.
+  const hol = document.createElement('p');
+  hol.textContent = combat.holstered
+    ? 'Weapon holstered — Vera walks unarmed.'
+    : `Weapon out: ${combat.weapons[combat.current].name}`;
+  list.appendChild(hol);
+  const holBtn = document.createElement('button');
+  holBtn.className = 'btn small';
+  holBtn.textContent = combat.holstered ? ui.t('draw') : ui.t('holster');
+  holBtn.addEventListener('click', () => { combat.toggleHolster(); renderBackpackTab(); });
+  list.appendChild(holBtn);
+  // Weapons.
+  const wh = document.createElement('h3');
+  wh.textContent = ui.t('weapons');
+  list.appendChild(wh);
+  for (const kind of ['pistol', 'smg']) {
+    const w = combat.weapons[kind];
+    const row = document.createElement('div');
+    row.className = 'shopRow';
+    row.innerHTML = w.owned
+      ? `<span><b>${w.name}</b>${combat.current === kind ? ' · ★' : ''}<br><small>Mag ${w.mag}/${w.magSize} · Reserve ${w.reserve}/${w.reserveMax}</small></span>`
+      : `<span><b>${w.name}</b><br><small>${ui.t('notOwned')} — buy at Ammo-Nation</small></span>`;
+    const btn = document.createElement('button');
+    btn.className = 'btn small';
+    btn.textContent = combat.current === kind ? ui.t('equipped') : ui.t('equip');
+    btn.disabled = !w.owned || combat.current === kind;
+    btn.addEventListener('click', () => { combat.switchWeapon(kind); renderBackpackTab(); });
+    row.appendChild(btn);
+    list.appendChild(row);
+  }
+  // Jackets (catalogue = Vice Threads items in shops.js, single source).
+  const jh = document.createElement('h3');
+  jh.textContent = ui.t('jackets');
+  list.appendChild(jh);
+  const cloth = SHOPS.find((s) => s.id === 'cloth');
+  for (const item of cloth ? cloth.items : []) {
+    const owned = ownedJackets.includes(item.color);
+    const worn = player.jacketColor === item.color;
+    const row = document.createElement('div');
+    row.className = 'shopRow';
+    row.innerHTML = `<span><span class="swatch" style="background:${JACKET_HEX(item.color)}"></span><b>${item.name}</b>${worn ? ` · ${ui.t('worn')}` : ''}<br><small>${owned ? ui.t('owned') : `$${item.price} · ${ui.t('notOwned')}`}</small></span>`;
+    const btn = document.createElement('button');
+    btn.className = 'btn small';
+    btn.textContent = worn ? ui.t('worn') : owned ? ui.t('equip') : ui.t('buyEquip');
+    btn.disabled = worn;
+    btn.addEventListener('click', () => {
+      if (!owned) {
+        if (money < item.price) { ui.toast('Not enough cash.'); return; }
+        money -= item.price;
+        ui.setMoney(money);
+        ownedJackets.push(item.color);
+      }
+      player.setJacket(item.color);
+      renderBackpackTab();
+    });
+    row.appendChild(btn);
+    list.appendChild(row);
+  }
+}
+
+function renderPhoneTab() {
   const list = document.getElementById('phoneJobs');
   list.innerHTML = '';
   const mkBtn = (label, fn) => {
@@ -365,13 +472,33 @@ function openPhone() {
   const all = document.createElement('div');
   all.innerHTML = '<b>All missions</b><br>' + missions.listMissions().map((d) => `${d.done ? '✓' : d.current ? '▶' : '·'} ${d.id}. ${d.title} — $${d.reward}`).join('<br>');
   list.appendChild(all);
-  panel.classList.remove('hidden');
 }
-function closePhone() {
+
+function showPackTab(tab) {
+  packTab = tab;
+  document.getElementById('tabBackpack')?.classList.toggle('active', tab === 'backpack');
+  document.getElementById('tabPhone')?.classList.toggle('active', tab === 'phone');
+  document.getElementById('backpackItems')?.classList.toggle('hidden', tab !== 'backpack');
+  document.getElementById('phoneJobs')?.classList.toggle('hidden', tab !== 'phone');
+  document.getElementById('phoneTitle').textContent = tab === 'backpack' ? `Backpack — Vera` : `Phone — Vera`;
+  if (tab === 'backpack') renderBackpackTab();
+  else renderPhoneTab();
+}
+
+function openPack(tab = 'backpack') {
+  paused = true;
+  overlay = 'phone';
+  document.getElementById('phonePanel').classList.remove('hidden');
+  showPackTab(tab);
+}
+function closePack() {
   document.getElementById('phonePanel').classList.add('hidden');
   paused = false;
   if (overlay === 'phone') overlay = null;
 }
+// Old names kept as thin aliases (step() + any debug caller).
+function openPhone() { openPack('phone'); }
+function closePhone() { closePack(); }
 
 function openMap() {
   paused = true;
@@ -386,6 +513,33 @@ function closeMap() {
   paused = false;
   if (overlay === 'map') overlay = null;
 }
+// ---- Settings (in-game pause panel) ----
+// Opens over the game and pauses it (overlay 'settings'); from the title
+// screen it opens without pausing anything. Every open re-syncs the
+// controls with the live settings, so a loaded save is shown correctly.
+function openSettings() {
+  syncSettingsInputs();
+  buildControlsList();
+  if (state === 'playing') {
+    paused = true;
+    overlay = 'settings';
+  }
+  document.getElementById('settingsPanel').classList.remove('hidden');
+}
+function closeSettings() {
+  document.getElementById('settingsPanel').classList.add('hidden');
+  paused = false;
+  if (overlay === 'settings') overlay = null;
+}
+function buildControlsList() {
+  const el = document.getElementById('controlsList');
+  if (!el || el.dataset.built) return;
+  el.dataset.built = '1';
+  el.innerHTML = getBindings()
+    .map((b) => `<div class="ctlRow"><span>${b.label}</span><b>${b.keys}</b></div>`)
+    .join('');
+}
+
 function resizeMapCanvas() {
   const c = document.getElementById('mapCanvas');
   c.width = Math.min(window.innerWidth - 24, 900);
@@ -400,7 +554,6 @@ let stepBudget = 8; // max substeps per frame (mandated default); the debug
 // hook below may raise it for fast playtests — shipped play stays at 8.
 
 function step(dt) {
-  gameTime += dt;
   // Consume edge-triggered presses FIRST, before the paused/title check
   // (BUG-2/3): the old code returned early while paused, so a key pressed
   // while an overlay was open sat in the queue and fired the frame after
@@ -408,16 +561,23 @@ function step(dt) {
   // overlay's own toggle key closes it and everything else is discarded.
   const pressed = input.consumePressed();
   if (paused || state !== 'playing') {
-    if (paused && overlay === 'map' && pressed.has('map')) closeMap();
-    else if (paused && overlay === 'phone' && pressed.has('phone')) closePhone();
+    // Esc / P closes whichever overlay is open (no soft-lock: every panel
+    // has a close path). Title-screen settings close the same way.
+    if (pressed.has('pause')) {
+      if (overlay === 'map') closeMap();
+      else if (overlay === 'phone') closePhone();
+      else if (overlay === 'shop') closeShop();
+      else if (overlay === 'settings') closeSettings();
+      else if (state !== 'playing') closeSettings();
+    } else if (paused && overlay === 'map' && pressed.has('map')) closeMap();
+    else if (paused && overlay === 'phone' && (pressed.has('phone') || pressed.has('backpack'))) closePhone();
     else if (paused && overlay === 'shop' && pressed.has('interact')) closeShop();
-    else if (paused && overlay === 'settings' && pressed.has('map')) {
-      document.getElementById('settingsPanel').classList.add('hidden');
-      paused = false;
-      overlay = null;
-    }
     return;
   }
+  // Game time only advances while actually simulating (Builder UI fix: it
+  // used to tick above the pause check, so the clock kept running behind
+  // the map/phone/shop/settings panels — a pause that doesn't pause).
+  gameTime += dt;
   const frameInput = input.read();
   frameInput.jump = pressed.has('jump');
 
@@ -435,7 +595,9 @@ function step(dt) {
     ui.toast(audio.isMuted() ? 'Muted' : 'Sound on');
   }
   if (pressed.has('map')) { openMap(); return; }
-  if (pressed.has('phone')) { openPhone(); return; }
+  if (pressed.has('backpack')) { openPack('backpack'); return; }
+  if (pressed.has('phone')) { openPack('phone'); return; }
+  if (pressed.has('pause')) { openSettings(); return; }
 
   // Movement.
   if (driving) {
@@ -507,7 +669,7 @@ function updateHud(dt) {
     const near = nearestInteractable();
     if (near?.kind === 'vehicle') hint.textContent = ui.t('enterCar');
     else if (near?.kind === 'shop') hint.textContent = `${near.shop.name} — ${ui.t('enterCar').replace('enter', 'open')}`;
-    else hint.textContent = 'WASD move · Shift run · E interact · M map · B phone · H holster';
+    else hint.textContent = 'WASD move · Shift run · E interact · M map · B backpack · H holster';
   } else {
     hint.textContent = ui.t('exitCar');
   }
@@ -649,19 +811,30 @@ window.addEventListener('pointerup', (e) => {
 
 document.getElementById('btnNew').addEventListener('click', () => startGame(false));
 document.getElementById('btnContinue').addEventListener('click', () => startGame(true));
-document.getElementById('btnSettings').addEventListener('click', () => {
-  paused = state === 'playing';
-  overlay = paused ? 'settings' : null;
-  document.getElementById('settingsPanel').classList.remove('hidden');
-});
-document.getElementById('btnCloseSettings').addEventListener('click', () => {
-  document.getElementById('settingsPanel').classList.add('hidden');
-  paused = false;
-  if (overlay === 'settings') overlay = null;
+document.getElementById('btnSettings').addEventListener('click', openSettings);
+document.getElementById('btnCloseSettings').addEventListener('click', closeSettings);
+document.getElementById('btnSaveNow').addEventListener('click', () => {
+  if (save.save()) ui.toast(ui.t('saved'));
+  else ui.toast('Save failed — storage unavailable.');
 });
 document.getElementById('btnCloseShop').addEventListener('click', closeShop);
 document.getElementById('btnClosePhone').addEventListener('click', closePhone);
+document.getElementById('tabBackpack').addEventListener('click', () => showPackTab('backpack'));
+document.getElementById('tabPhone').addEventListener('click', () => showPackTab('phone'));
 document.getElementById('btnCloseMap').addEventListener('click', closeMap);
+// Tap the minimap to open the full map (touch + desktop).
+document.getElementById('minimap').addEventListener('click', () => {
+  if (state === 'playing' && !paused) openMap();
+});
+// Desktop quick buttons (hidden on touch devices — the touch buttons in
+// #touch serve the same actions there). Guarded: no-ops on the title screen.
+document.getElementById('btnQuickMap').addEventListener('click', () => {
+  if (state === 'playing' && !paused) openMap();
+});
+document.getElementById('btnQuickPack').addEventListener('click', () => {
+  if (state === 'playing' && !paused) openPack('backpack');
+});
+document.getElementById('btnQuickSet').addEventListener('click', openSettings);
 document.getElementById('mapCanvas').addEventListener('click', (e) => {
   const rect = e.target.getBoundingClientRect();
   const x = e.clientX - rect.left;
@@ -690,6 +863,18 @@ document.getElementById('volSlider').addEventListener('input', (e) => {
   settings.volume = Number(e.target.value);
   audio.setVolume(settings.volume);
 });
+document.getElementById('musicSlider').addEventListener('input', (e) => {
+  settings.musicVolume = Number(e.target.value);
+  audio.setMusicVolume(settings.musicVolume);
+});
+document.getElementById('sfxSlider').addEventListener('input', (e) => {
+  settings.sfxVolume = Number(e.target.value);
+  audio.setSfxVolume(settings.sfxVolume);
+});
+document.getElementById('muteChk').addEventListener('change', (e) => {
+  settings.muted = e.target.checked;
+  audio.setMuted(settings.muted);
+});
 document.getElementById('qualitySel').addEventListener('change', (e) => {
   settings.quality = e.target.value;
   applyQuality();
@@ -707,4 +892,5 @@ applyQuality();
 placeCamera();
 ui.setMoney(money);
 ui.setLang(settings.lang);
+syncSettingsInputs();
 requestAnimationFrame(frame);

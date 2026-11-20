@@ -15,6 +15,11 @@ export const I18N = {
     race: 'Street race', startMission: 'Missions', back: 'Back',
     paused: 'Paused', debt: 'Debt to Rico', night: 'Night', day: 'Day',
     rain: 'Rain', enterCar: 'Press E to enter', exitCar: 'Press E to exit',
+    backpack: 'Backpack', weapons: 'Weapons', jackets: 'Jackets',
+    owned: 'Owned', worn: 'Worn', equip: 'Equip', equipped: 'Equipped',
+    holster: 'Holster', draw: 'Draw', music: 'Music volume', sfx: 'SFX volume',
+    mute: 'Mute all sound', controls: 'Controls', saveNow: 'Save now',
+    saved: 'Game saved.', buyEquip: 'Buy & equip', notOwned: 'Not owned',
   },
   id: {
     money: 'Uang', wanted: 'Buronan', hp: 'Darah', ammo: 'Peluru', objective: 'Misi',
@@ -24,6 +29,11 @@ export const I18N = {
     race: 'Balapan jalanan', startMission: 'Misi', back: 'Kembali',
     paused: 'Jeda', debt: 'Utang ke Rico', night: 'Malam', day: 'Siang',
     rain: 'Hujan', enterCar: 'Tekan E untuk masuk', exitCar: 'Tekan E untuk keluar',
+    backpack: 'Ransel', weapons: 'Senjata', jackets: 'Jaket',
+    owned: 'Dimiliki', worn: 'Dipakai', equip: 'Pakai', equipped: 'Dipakai',
+    holster: 'Simpan', draw: 'Keluarkan', music: 'Volume musik', sfx: 'Volume efek',
+    mute: 'Bisukan semua suara', controls: 'Kontrol', saveNow: 'Simpan sekarang',
+    saved: 'Game tersimpan.', buyEquip: 'Beli & pakai', notOwned: 'Belum dimiliki',
   },
 };
 

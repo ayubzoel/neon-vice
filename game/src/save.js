@@ -33,10 +33,18 @@ export function createSave(ctx) {
             current: ctx.combat.current,
           },
           jacketColor: ctx.player.jacketColor,
+          // Jackets bought at Vice Threads (owned = equip free in Backpack).
+          // Seeded from the current jacket when the getter is absent.
+          ownedJackets: ctx.getOwnedJackets
+            ? ctx.getOwnedJackets()
+            : [ctx.player.jacketColor],
           missions: ctx.missions.getState(),
           hour: ctx.weather.hour,
           lang: ctx.settings.lang,
           volume: ctx.settings.volume,
+          musicVolume: ctx.settings.musicVolume,
+          sfxVolume: ctx.settings.sfxVolume,
+          muted: !!ctx.settings.muted,
           quality: ctx.settings.quality,
         };
         window.localStorage.setItem(KEY, JSON.stringify(data));

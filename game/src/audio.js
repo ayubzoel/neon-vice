@@ -8,6 +8,7 @@ export function createAudio() {
   let ctx = null;
   let master = null;
   let musicGain = null;
+  let sfxGain = null; // SFX bus (shots, engine, siren, chimes) — separate from music
   let engineOsc = null;
   let engineGain = null;
   let sirenOsc = null;
@@ -15,6 +16,8 @@ export function createAudio() {
   let musicTimer = null;
   let muted = false;
   let volume = 0.7;
+  let musicVolume = 0.8;
+  let sfxVolume = 0.9;
 
   function ensure() {
     if (ctx) return true;
@@ -26,11 +29,14 @@ export function createAudio() {
       master.gain.value = muted ? 0 : volume;
       master.connect(ctx.destination);
       musicGain = ctx.createGain();
-      musicGain.gain.value = 0.16;
+      musicGain.gain.value = 0.16 * musicVolume;
       musicGain.connect(master);
+      sfxGain = ctx.createGain();
+      sfxGain.gain.value = sfxVolume;
+      sfxGain.connect(master);
       engineGain = ctx.createGain();
       engineGain.gain.value = 0;
-      engineGain.connect(master);
+      engineGain.connect(sfxGain);
       engineOsc = ctx.createOscillator();
       engineOsc.type = 'sawtooth';
       engineOsc.frequency.value = 55;
@@ -42,7 +48,7 @@ export function createAudio() {
       engineOsc.start();
       sirenGain = ctx.createGain();
       sirenGain.gain.value = 0;
-      sirenGain.connect(master);
+      sirenGain.connect(sfxGain);
       sirenOsc = ctx.createOscillator();
       sirenOsc.type = 'triangle';
       sirenOsc.frequency.value = 700;
@@ -103,7 +109,7 @@ export function createAudio() {
     g.gain.value = gainValue;
     src.connect(filter);
     filter.connect(g);
-    g.connect(master);
+    g.connect(sfxGain);
     src.start();
   }
 
@@ -117,7 +123,7 @@ export function createAudio() {
     g.gain.setValueAtTime(gainValue, ctx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
     osc.connect(g);
-    g.connect(master);
+    g.connect(sfxGain);
     osc.start();
     osc.stop(ctx.currentTime + duration + 0.02);
   }
@@ -130,6 +136,16 @@ export function createAudio() {
       volume = Math.max(0, Math.min(1, v));
       if (master) master.gain.value = muted ? 0 : volume;
     },
+    setMusicVolume(v) {
+      musicVolume = Math.max(0, Math.min(1, v));
+      if (musicGain) musicGain.gain.value = 0.16 * musicVolume;
+    },
+    getMusicVolume() { return musicVolume; },
+    setSfxVolume(v) {
+      sfxVolume = Math.max(0, Math.min(1, v));
+      if (sfxGain) sfxGain.gain.value = sfxVolume;
+    },
+    getSfxVolume() { return sfxVolume; },
     setMuted(m) {
       muted = m;
       if (master) master.gain.value = muted ? 0 : volume;

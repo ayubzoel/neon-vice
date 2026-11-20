@@ -61,6 +61,29 @@
   @keyframes carPulse { 0%, 100% { box-shadow: 0 0 0 rgba(244,114,182,0); } 50% { box-shadow: 0 0 18px rgba(244,114,182,0.8); } }
   #btnJump { right: 96px; bottom: 108px; }
   #btnHolster { right: 172px; bottom: 28px; }
+  /* Builder UI: MAP above CAR, PACK above JUMP (clear of the touch hint
+     pill, whose top edge sits ~204px from the bottom), SET above GUN.
+     Checked non-overlapping at 390x844 against every other .tbtn. */
+  #btnMap { right: 20px; bottom: 260px; }
+  #btnPack { right: 96px; bottom: 216px; }
+  #btnSet { right: 172px; bottom: 108px; }
+  /* Desktop quick buttons: same three actions, top-right under the minimap.
+     Hidden on touch devices (the #touch buttons serve there) and until the
+     game starts (startGame removes .hidden). */
+  #quickBtns { position: fixed; right: 14px; top: 170px; z-index: 6; display: flex; gap: 6px; }
+  #quickBtns.hidden { display: none; }
+  body.touch-device #quickBtns { display: none !important; }
+  .qbtn { padding: 8px 10px; font-size: 12px; font-weight: 800; color: #eef1f5; background: rgba(11,16,38,0.85); border: 2px solid rgba(255,255,255,0.35); border-radius: 8px; cursor: pointer; }
+  .qbtn:hover { border-color: #f472b6; }
+  #minimap { cursor: pointer; }
+  .tabs { display: flex; gap: 6px; margin: 8px 0 4px; }
+  .tabbtn { flex: 1; padding: 9px 10px; font-size: 15px; font-weight: 700; color: #cbd5e1; background: #1e293b; border: 2px solid #334155; border-radius: 8px; cursor: pointer; }
+  .tabbtn.active { color: #0b0e14; background: #f472b6; border-color: #f472b6; }
+  .swatch { display: inline-block; width: 18px; height: 18px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.4); vertical-align: -4px; margin-right: 8px; }
+  .card h3 { margin: 14px 0 2px; font-size: 17px; color: #f9a8d4; }
+  .ctlRow { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; color: #cbd5e1; border-top: 1px solid #334155; padding: 6px 0; }
+  .ctlRow b { color: #e2e8f0; white-space: nowrap; }
+  #controlsList { margin: 4px 0 8px; }
   #mapOverlay { z-index: 25; background: rgba(5,8,16,0.9); flex-direction: column; }
   #mapCanvas { border: 2px solid #f472b6; border-radius: 10px; max-width: 94vw; max-height: 78vh; }
   @media (max-width: 640px) {
@@ -92,7 +115,7 @@
 </div>
 <canvas id="minimap" class="hidden" width="150" height="150"></canvas>
 <div id="hudMsg"></div>
-<div id="hudHint" class="hidden">WASD move &middot; Shift run &middot; E interact &middot; M map &middot; B phone &middot; H holster</div>
+<div id="hudHint" class="hidden">WASD move &middot; Shift run &middot; E interact &middot; M map &middot; B backpack &middot; H holster</div>
 <div id="touchHint"></div>
 
 <div id="webglError" hidden></div>
@@ -123,10 +146,21 @@
   </div>
 </div>
 
+<div id="quickBtns" class="hidden">
+  <button class="qbtn" id="btnQuickMap">MAP</button>
+  <button class="qbtn" id="btnQuickPack">PACK</button>
+  <button class="qbtn" id="btnQuickSet">SET</button>
+</div>
+
 <div id="phonePanel" class="panel hidden">
   <div class="card">
-    <h2 id="phoneTitle">Phone — Vera</h2>
-    <div id="phoneJobs"></div>
+    <h2 id="phoneTitle">Backpack — Vera</h2>
+    <div class="tabs">
+      <button class="tabbtn active" id="tabBackpack" data-i18n="backpack">Backpack</button>
+      <button class="tabbtn" id="tabPhone" data-i18n="phone">Phone</button>
+    </div>
+    <div id="backpackItems"></div>
+    <div id="phoneJobs" class="hidden"></div>
     <button class="btn secondary" id="btnClosePhone" data-i18n="close">Close</button>
   </div>
 </div>
@@ -135,11 +169,17 @@
   <div class="card">
     <h2 data-i18n="settings">Settings</h2>
     <label class="row"><span data-i18n="volume">Volume</span><input type="range" id="volSlider" min="0" max="1" step="0.05" value="0.7"></label>
+    <label class="row"><span data-i18n="music">Music volume</span><input type="range" id="musicSlider" min="0" max="1" step="0.05" value="0.8"></label>
+    <label class="row"><span data-i18n="sfx">SFX volume</span><input type="range" id="sfxSlider" min="0" max="1" step="0.05" value="0.9"></label>
+    <label class="row"><span data-i18n="mute">Mute all sound</span><input type="checkbox" id="muteChk"></label>
     <label class="row"><span data-i18n="quality">Graphics quality</span>
       <select id="qualitySel"><option value="high">High</option><option value="low">Low</option></select></label>
     <label class="row"><span data-i18n="language">Language</span>
       <select id="langSel"><option value="en">English</option><option value="id">Bahasa Indonesia</option></select></label>
-    <button class="btn" id="btnCloseSettings" data-i18n="close">Close</button>
+    <h3 data-i18n="controls">Controls</h3>
+    <div id="controlsList"></div>
+    <button class="btn" id="btnSaveNow" data-i18n="saveNow">Save now</button>
+    <button class="btn secondary" id="btnCloseSettings" data-i18n="close">Close</button>
   </div>
 </div>
 
@@ -150,6 +190,9 @@
   <button class="tbtn" id="btnCar">CAR</button>
   <button class="tbtn" id="btnJump">JUMP</button>
   <button class="tbtn" id="btnHolster">GUN</button>
+  <button class="tbtn" id="btnMap">MAP</button>
+  <button class="tbtn" id="btnPack">PACK</button>
+  <button class="tbtn" id="btnSet">SET</button>
 </div>
 
 <script src="./vendor/three.min.js"></script>

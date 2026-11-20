@@ -27,13 +27,53 @@ const ACTION_KEYS = {
   KeyE: 'interact',
   KeyH: 'holster',
   KeyM: 'map',
-  KeyB: 'phone',
+  KeyB: 'backpack',
   KeyN: 'mute',
   KeyR: 'reload',
   Space: 'jump',
   Digit1: 'weapon1',
   Digit2: 'weapon2',
+  Escape: 'pause',
+  KeyP: 'pause',
 };
+
+// Human-readable labels for the Settings > Controls list (ui.js renders
+// them read-only: remapping is deliberately NOT offered — a remap saved to
+// localStorage could silently break the playtest harness, which drives the
+// game by physical key code).
+const KEY_LABELS = {
+  KeyW: 'W', KeyA: 'A', KeyS: 'S', KeyD: 'D',
+  ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
+  ShiftLeft: 'Shift', ShiftRight: 'Shift', Space: 'Space', Escape: 'Esc',
+};
+function keyLabel(code) {
+  if (KEY_LABELS[code]) return KEY_LABELS[code];
+  if (code.startsWith('Key')) return code.slice(3);
+  if (code.startsWith('Digit')) return code.slice(5);
+  return code;
+}
+const ACTION_LABELS = {
+  forward: 'Move forward', back: 'Move back', left: 'Turn left', right: 'Turn right',
+  run: 'Run', interact: 'Enter car / open shop / exit', holster: 'Holster / draw weapon',
+  map: 'Open map', backpack: 'Open backpack / phone', phone: 'Open backpack / phone',
+  mute: 'Mute / unmute', reload: 'Reload', jump: 'Jump',
+  weapon1: 'Select pistol', weapon2: 'Select SMG', pause: 'Pause / settings',
+};
+export function getBindings() {
+  const out = [];
+  const seen = new Set();
+  for (const [code, action] of Object.entries(KEYMAP)) {
+    if (seen.has(action)) continue;
+    seen.add(action);
+    out.push({ action, label: ACTION_LABELS[action] || action, keys: keyLabel(code) });
+  }
+  for (const [code, action] of Object.entries(ACTION_KEYS)) {
+    const row = out.find((r) => r.action === action);
+    if (row) row.keys += ` / ${keyLabel(code)}`;
+    else out.push({ action, label: ACTION_LABELS[action] || action, keys: keyLabel(code) });
+  }
+  return out;
+}
 
 export function createInput() {
   const keys = new Set();
@@ -162,6 +202,11 @@ export function createInput() {
       bindTouchButton('btnCar', 'interact', false);
       bindTouchButton('btnJump', 'jump', false);
       bindTouchButton('btnHolster', 'holster', false);
+      // Builder UI: MAP opens the full map, PACK opens Backpack/Phone,
+      // SET opens Settings (pause). Edge-triggered like the other tap buttons.
+      bindTouchButton('btnMap', 'map', false);
+      bindTouchButton('btnPack', 'backpack', false);
+      bindTouchButton('btnSet', 'pause', false);
       if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
         document.getElementById('touch')?.classList.add('on');
         document.body.classList.add('touch-device'); // hides the WASD hint
