@@ -157,11 +157,15 @@ async function driveTo(page, x, z, timeout = 90000, opts = {}) {
 }
 
 async function driveLeg(page, x, z, timeout = 90000, final = false, doneCheck = null) {
-  const accept = final ? 8 : 25;
+  // Intermediate waypoints accept 12 m: the old 25 m let the car start
+  // turning toward the next leg from 25 m out, cutting the intersection
+  // corner across a block and wedging into a building (side-job race).
+  const accept = final ? 8 : 12;
   const t0 = Date.now();
   let checkTime = Date.now();
   let checkDist = Infinity;
   let lastDoneCheck = 0;
+  let stuckCount = 0;
   while (Date.now() - t0 < timeout) {
     const s = await stats(page);
     if (!s.driving) return false;
@@ -181,10 +185,17 @@ async function driveLeg(page, x, z, timeout = 90000, final = false, doneCheck = 
       });
       console.log(`  driveLeg TIMEOUT target=(${x},${z}) final=${final} ${diag}`);
     }
-    // Stuck check on a WALL-CLOCK window (see walkTo).
+    // Stuck check on a WALL-CLOCK window (see walkTo). Reverse WHILE
+    // steering (alternate sides): a straight reverse just re-rams the
+    // same wall; reversing into a turn rotates the car off the obstacle.
     if (Date.now() - checkTime > 2000) {
       if (dist > checkDist - 2) {
-        await page.keyboard.down('KeyS'); await sleep(800); await page.keyboard.up('KeyS');
+        stuckCount += 1;
+        const dir = stuckCount % 2 === 1 ? 'KeyA' : 'KeyD';
+        await page.keyboard.up('KeyW');
+        await page.keyboard.down('KeyS'); await page.keyboard.down(dir);
+        await sleep(900);
+        await page.keyboard.up('KeyS'); await page.keyboard.up(dir);
       }
       checkDist = dist;
       checkTime = Date.now();
