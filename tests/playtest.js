@@ -110,6 +110,9 @@ async function walkTo(page, x, z, timeout = 60000, radius = 9) {
 // Drive the current vehicle toward a target (W + A/D steering).
 // On land the route follows the road graph (straight lines cross buildings);
 // on water (opts.direct) it steers straight at the target.
+// opts.doneCheck: async () => boolean — the game may already have moved on
+// (a race checkpoint triggers at 12 m while the driver is still creeping
+// toward the 8 m acceptance), so stop as soon as the target is stale.
 async function driveTo(page, x, z, timeout = 90000, opts = {}) {
   const legs = [];
   if (!opts.direct) {
@@ -136,18 +139,19 @@ async function driveTo(page, x, z, timeout = 90000, opts = {}) {
     // final target gets the slow approach (accept 8 m, tighter than the
     // 10 m mission radius) — braking at every node made a 4-checkpoint race
     // take ~290 game-seconds, over its 150 s limit.
-    const legOk = await driveLeg(page, lx, lz, Math.max(20000, timeout - (Date.now() - t0)), i === legs.length - 1);
+    const legOk = await driveLeg(page, lx, lz, Math.max(20000, timeout - (Date.now() - t0)), i === legs.length - 1, opts.doneCheck);
     if (!legOk) return false;
     if (Date.now() - t0 > timeout) return false;
   }
   return true;
 }
 
-async function driveLeg(page, x, z, timeout = 90000, final = false) {
+async function driveLeg(page, x, z, timeout = 90000, final = false, doneCheck = null) {
   const accept = final ? 8 : 25;
   const t0 = Date.now();
   let checkTime = Date.now();
   let checkDist = Infinity;
+  let lastDoneCheck = 0;
   while (Date.now() - t0 < timeout) {
     const s = await stats(page);
     if (!s.driving) return false;
@@ -155,6 +159,10 @@ async function driveLeg(page, x, z, timeout = 90000, final = false) {
     const dx = x - h.x, dz = z - h.z;
     const dist = Math.hypot(dx, dz);
     if (dist < accept) { await page.keyboard.up('KeyW'); await page.keyboard.up('KeyA'); await page.keyboard.up('KeyD'); return true; }
+    if (doneCheck && Date.now() - lastDoneCheck > 800) {
+      lastDoneCheck = Date.now();
+      if (await doneCheck()) { await page.keyboard.up('KeyW'); await page.keyboard.up('KeyA'); await page.keyboard.up('KeyD'); return true; }
+    }
     if (Date.now() - t0 > timeout - 1000) {
       const diag = await page.evaluate(() => {
         const g = window.NEON_VICE.game;
@@ -230,6 +238,18 @@ async function waitForAdvance(page, timeout = 60000) {
     await sleep(400);
   }
   return false;
+}
+
+// doneCheck for a drive: true once the game's live stage target is no
+// longer the point being driven to (checkpoint hit / stage advanced).
+function targetMoved(page, x, z) {
+  return async () => {
+    const t = await page.evaluate(() => {
+      const tt = window.NEON_VICE.game.missions.stageTarget();
+      return tt ? [tt.x, tt.z] : null;
+    });
+    return !t || Math.hypot(t[0] - x, t[1] - z) > 1;
+  };
 }
 
 async function pressKey(page, code, ms = 80) {
@@ -362,7 +382,7 @@ async function main() {
                 return t ? [t.x, t.z] : null;
               });
               if (tgt) {
-                ok = await driveTo(page, tgt[0], tgt[1], 120000);
+                ok = await driveTo(page, tgt[0], tgt[1], 120000, { doneCheck: targetMoved(page, tgt[0], tgt[1]) });
                 note = ok ? 'drove to destination' : 'drive failed';
                 if (ok) { await pressKey(page, 'KeyE'); await sleep(300); }
               } else { note = 'no drive target'; }
@@ -397,7 +417,7 @@ async function main() {
                   return t ? [t.x, t.z] : null;
                 });
                 if (!cp) break;
-                const r = await driveTo(page, cp[0], cp[1], 90000);
+                const r = await driveTo(page, cp[0], cp[1], 90000, { doneCheck: targetMoved(page, cp[0], cp[1]) });
                 if (!r) { note = `checkpoint ${cp} missed`; ok = false; break; }
               }
               if (ok) ok = await waitFor(page, () => window.NEON_VICE.stats().missionId !== 5 || window.NEON_VICE.stats().mission === 'done', 8000, 'race complete');
@@ -510,7 +530,7 @@ async function main() {
                 return t ? [t.x, t.z] : null;
               });
               if (tgt) {
-                ok = await driveTo(page, tgt[0], tgt[1], 150000, { direct: true });
+                ok = await driveTo(page, tgt[0], tgt[1], 150000, { direct: true, doneCheck: targetMoved(page, tgt[0], tgt[1]) });
                 note = ok ? 'sailed to north bay' : 'boat drive failed';
               } else note = 'no sail target';
             } else note = 'could not board boat';
