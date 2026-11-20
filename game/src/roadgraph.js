@@ -1,0 +1,130 @@
+// Neon Vice — road graph (Builder B). Pure logic, no THREE dependency:
+// a connected grid of streets over Vice Harbor, with BFS pathfinding and
+// nearest-road queries used by gameplay (Builder C) and the GPS.
+
+// xs: vertical streets (constant x), zs: horizontal streets (constant z).
+// vWidths[i] / hWidths[j]: full road width of street i / j.
+export function buildRoadGraph(xs, zs, vWidths, hWidths) {
+  const cols = xs.length;
+  const rows = zs.length;
+  const nodes = [];
+  const nodeId = (c, r) => r * cols + c;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      nodes.push({ id: nodeId(c, r), x: xs[c], z: zs[r], col: c, row: r });
+    }
+  }
+
+  const segments = [];
+  const adjacency = nodes.map(() => []);
+  function addSegment(a, b, width, arterial, kind) {
+    const na = nodes[a];
+    const nb = nodes[b];
+    const seg = {
+      a, b,
+      ax: na.x, az: na.z, bx: nb.x, bz: nb.z,
+      length: Math.hypot(nb.x - na.x, nb.z - na.z),
+      width, arterial, kind,
+    };
+    const idx = segments.length;
+    segments.push(seg);
+    adjacency[a].push({ to: b, seg: idx });
+    adjacency[b].push({ to: a, seg: idx });
+    return idx;
+  }
+
+  // Horizontal segments: along each z-row, between adjacent vertical streets.
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols - 1; c++) {
+      addSegment(nodeId(c, r), nodeId(c + 1, r), hWidths[r], hWidths[r] >= 12, 'horizontal');
+    }
+  }
+  // Vertical segments: along each x-column, between adjacent horizontal streets.
+  for (let c = 0; c < cols; c++) {
+    for (let r = 0; r < rows - 1; r++) {
+      addSegment(nodeId(c, r), nodeId(c, r + 1), vWidths[c], vWidths[c] >= 12, 'vertical');
+    }
+  }
+
+  function nearestNode(x, z) {
+    let best = null;
+    let bestD = Infinity;
+    for (const n of nodes) {
+      const d = (n.x - x) * (n.x - x) + (n.z - z) * (n.z - z);
+      if (d < bestD) { bestD = d; best = n; }
+    }
+    return best;
+  }
+
+  function bfs(startId) {
+    const prev = new Map([[startId, -1]]);
+    const queue = [startId];
+    for (let qi = 0; qi < queue.length; qi++) {
+      const cur = queue[qi];
+      for (const { to } of adjacency[cur]) {
+        if (!prev.has(to)) { prev.set(to, cur); queue.push(to); }
+      }
+    }
+    return prev;
+  }
+
+  const graph = {
+    nodes,
+    segments,
+    adjacency,
+
+    nearestNode,
+    // BFS from a node id: set of reachable node ids.
+    bfsFrom(startId) {
+      return new Set(bfs(startId).keys());
+    },
+    countDeadEnds() {
+      let n = 0;
+      for (let i = 0; i < nodes.length; i++) if (adjacency[i].length <= 1) n++;
+      return n;
+    },
+    // a, b: {x,z} points or node ids. Returns [{x,z}, ...] or null.
+    findPath(a, b) {
+      const start = typeof a === 'number' ? a : nearestNode(a.x, a.z).id;
+      const goal = typeof b === 'number' ? b : nearestNode(b.x, b.z).id;
+      if (start === goal) {
+        const n = nodes[start];
+        return [{ x: n.x, z: n.z }];
+      }
+      const prev = bfs(start);
+      if (!prev.has(goal)) return null;
+      const path = [];
+      let cur = goal;
+      while (cur !== -1) {
+        const n = nodes[cur];
+        path.push({ x: n.x, z: n.z });
+        cur = prev.get(cur);
+      }
+      path.reverse();
+      return path;
+    },
+    // Closest point on any segment to (x,z).
+    nearestOnRoad(x, z) {
+      let best = null;
+      for (let i = 0; i < segments.length; i++) {
+        const s = segments[i];
+        const dx = s.bx - s.ax;
+        const dz = s.bz - s.az;
+        const len2 = dx * dx + dz * dz;
+        let t = len2 === 0 ? 0 : ((x - s.ax) * dx + (z - s.az) * dz) / len2;
+        t = Math.max(0, Math.min(1, t));
+        const px = s.ax + dx * t;
+        const pz = s.az + dz * t;
+        const dist = Math.hypot(x - px, z - pz);
+        if (!best || dist < best.dist) best = { x: px, z: pz, dist, segment: i };
+      }
+      return best;
+    },
+    isOnRoad(x, z) {
+      const near = this.nearestOnRoad(x, z);
+      if (!near) return false;
+      return near.dist <= segments[near.segment].width / 2 + 0.5;
+    },
+  };
+  return graph;
+}
