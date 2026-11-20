@@ -500,6 +500,13 @@ export function createMissions(scene, world, ctx) {
     currentDef,
     currentStage,
     stageTarget,
+    // Live positions of the peds the current kill stage needs dead
+    // (thugs AND police guards — mission 10's guards are police peds).
+    stageSpawned() {
+      return (stageState.spawned || []).map((e) => ({
+        x: e.mesh.position.x, z: e.mesh.position.z, dead: e.dead, kind: e.kind,
+      }));
+    },
     startMission,
     failMission,
     startSideJob,

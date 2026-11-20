@@ -79,6 +79,7 @@ async function walkTo(page, x, z, timeout = 60000, radius = 9) {
   const t0 = Date.now();
   let checkTime = Date.now();
   let checkDist = Infinity;
+  let sidestep = 0;
   while (Date.now() - t0 < timeout) {
     const h = await hero(page);
     const dx = x - h.x, dz = z - h.z;
@@ -88,7 +89,16 @@ async function walkTo(page, x, z, timeout = 60000, radius = 9) {
     // sampled twice, so a per-sample counter fires spuriously.
     if (Date.now() - checkTime > 2000) {
       if (dist > checkDist - 1) {
+        // Wedged against a wall (e.g. a building between the teleport
+        // point and the safehouse): back up, then sweep around the
+        // obstacle (alternate sides) instead of ramming the same wall.
+        await page.keyboard.up('KeyW');
         await page.keyboard.down('KeyS'); await sleep(400); await page.keyboard.up('KeyS');
+        sidestep += 1;
+        const dir = sidestep % 2 === 1 ? 'KeyA' : 'KeyD';
+        await page.keyboard.down(dir); await page.keyboard.down('KeyW');
+        await sleep(1200);
+        await page.keyboard.up(dir); await page.keyboard.up('KeyW');
       }
       checkDist = dist;
       checkTime = Date.now();
@@ -394,8 +404,8 @@ async function main() {
               const diag = await page.evaluate(() => {
                 const g = window.NEON_VICE.game;
                 const p = g.player.group.position;
-                const alive = g.combat.enemies.filter((e) => !e.dead).map((e) => `(${e.mesh.position.x.toFixed(0)},${e.mesh.position.z.toFixed(0)}):${e.hp}`);
-                return `hp=${g.player.hp} mag=${g.combat.weapons[g.combat.current].mag} holstered=${g.combat.holstered} wanted=${g.combat.wanted} police=${g.combat.police.filter((e) => !e.dead).length} pos=(${p.x.toFixed(0)},${p.z.toFixed(0)}) alive=[${alive.join(' ')}]`;
+                const alive = g.missions.stageSpawned().filter((e) => !e.dead).map((e) => `(${e.x.toFixed(0)},${e.z.toFixed(0)}):${e.kind}`);
+                return `hp=${g.player.hp} mag=${g.combat.weapons[g.combat.current].mag} holstered=${g.combat.holstered} wanted=${g.combat.wanted} police=${g.combat.police.filter((e) => !e.dead).length} pos=(${p.x.toFixed(0)},${p.z.toFixed(0)}) targets=[${alive.join(' ')}]`;
               });
               console.log(`  combat[${n}] t=${((Date.now() - t0) / 1000).toFixed(0)}s ${diag}`);
             }
@@ -411,19 +421,22 @@ async function main() {
             const aim = await page.evaluate(() => {
               const g = window.NEON_VICE.game;
               const p = g.player.group.position;
-              // Mission thugs only — police are a distraction that
-              // respawns while wanted > 0 and would eat all the shots.
-              const list = [...g.combat.enemies].filter((e) => !e.dead);
+              // Aim at the MISSION's spawned targets (thugs or police
+              // guards — mission 10's guards are police peds, not
+              // combat.enemies, so aiming at enemies alone never fires).
+              const list = g.missions.stageSpawned()
+                .filter((e) => !e.dead)
+                .map((e) => ({ x: e.x, z: e.z }));
               if (!list.length) return { aimed: false };
               list.sort((a, b) => {
-                const da = Math.hypot(a.mesh.position.x - p.x, a.mesh.position.z - p.z);
-                const db = Math.hypot(b.mesh.position.x - p.x, b.mesh.position.z - p.z);
+                const da = Math.hypot(a.x - p.x, a.z - p.z);
+                const db = Math.hypot(b.x - p.x, b.z - p.z);
                 return da - db;
               });
               const e = list[0];
-              const dist = Math.hypot(e.mesh.position.x - p.x, e.mesh.position.z - p.z);
-              g.player.heading = Math.atan2(e.mesh.position.x - p.x, e.mesh.position.z - p.z);
-              return { aimed: true, dist, x: e.mesh.position.x, z: e.mesh.position.z };
+              const dist = Math.hypot(e.x - p.x, e.z - p.z);
+              g.player.heading = Math.atan2(e.x - p.x, e.z - p.z);
+              return { aimed: true, dist, x: e.x, z: e.z };
             });
             if (aim.aimed && aim.dist < 55) {
               if (!firing) { await page.mouse.down(); firing = true; }
