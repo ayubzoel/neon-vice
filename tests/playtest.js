@@ -130,15 +130,21 @@ async function driveTo(page, x, z, timeout = 90000, opts = {}) {
   }
   legs.push([x, z]);
   const t0 = Date.now();
-  for (const [lx, lz] of legs) {
-    const legOk = await driveLeg(page, lx, lz, Math.max(20000, timeout - (Date.now() - t0)));
+  for (let i = 0; i < legs.length; i += 1) {
+    const [lx, lz] = legs[i];
+    // Intermediate nodes are waypoints: pass within 25 m at speed. Only the
+    // final target gets the slow approach (accept 8 m, tighter than the
+    // 10 m mission radius) — braking at every node made a 4-checkpoint race
+    // take ~290 game-seconds, over its 150 s limit.
+    const legOk = await driveLeg(page, lx, lz, Math.max(20000, timeout - (Date.now() - t0)), i === legs.length - 1);
     if (!legOk) return false;
     if (Date.now() - t0 > timeout) return false;
   }
   return true;
 }
 
-async function driveLeg(page, x, z, timeout = 90000) {
+async function driveLeg(page, x, z, timeout = 90000, final = false) {
+  const accept = final ? 8 : 25;
   const t0 = Date.now();
   let checkTime = Date.now();
   let checkDist = Infinity;
@@ -148,7 +154,7 @@ async function driveLeg(page, x, z, timeout = 90000) {
     const h = await hero(page);
     const dx = x - h.x, dz = z - h.z;
     const dist = Math.hypot(dx, dz);
-    if (dist < 12) { await page.keyboard.up('KeyW'); await page.keyboard.up('KeyA'); await page.keyboard.up('KeyD'); return true; }
+    if (dist < accept) { await page.keyboard.up('KeyW'); await page.keyboard.up('KeyA'); await page.keyboard.up('KeyD'); return true; }
     // Stuck check on a WALL-CLOCK window (see walkTo).
     if (Date.now() - checkTime > 2000) {
       if (dist > checkDist - 2) {
@@ -161,10 +167,10 @@ async function driveLeg(page, x, z, timeout = 90000) {
     let diff = desired - h.heading;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
-    // Approach control: a car at 30 m/s jumps 12 m per frame and overshoots
-    // a 12 m acceptance radius forever. Brake early, creep under 4 m/s, and
-    // sample every 60 ms so the crossing is not missed between samples.
-    if (dist > 45) {
+    // Approach control (final leg only): a car at 30 m/s jumps 12 m per
+    // frame and overshoots a small acceptance radius forever. Brake early,
+    // creep under 4 m/s, sample every 60 ms so the crossing is not missed.
+    if (!final || dist > 45) {
       await page.keyboard.down('KeyW'); await page.keyboard.up('KeyS');
     } else if (s.speed > 10) {
       await page.keyboard.up('KeyW'); await page.keyboard.down('KeyS');
@@ -410,19 +416,13 @@ async function main() {
               while (Date.now() - t0 < 150000) {
                 const st = await stats(page);
                 if (st.missionId !== n || st.mission === 'done' || st.mission === 'failed') { done = st.mission === 'done' || st.missionId !== n; break; }
-                if (st.hp < 40) {
-                  await page.evaluate(() => {
-                    const g = window.NEON_VICE.game;
-                    const p = g.player.group.position;
-                    const list = [...g.combat.enemies, ...g.combat.police].filter((e) => !e.dead);
-                    if (!list.length) return;
-                    const e = list[0];
-                    const dx = p.x - e.mesh.position.x, dz = p.z - e.mesh.position.z;
-                    const d = Math.hypot(dx, dz) || 1;
-                    window.NEON_VICE.debug.teleport(p.x + (dx / d) * 40, p.z + (dz / d) * 40);
-                    window.NEON_VICE.debug.setHp(100);
-                  });
-                  await sleep(300);
+                // Stand and fight (the isolated probe kills all thugs in
+                // ~9 s this way): teleport-kiting breaks the fight because
+                // the thugs then have to be chased back through buildings.
+                // Heal in place instead.
+                if (st.hp < 50) {
+                  await page.evaluate(() => window.NEON_VICE.debug.setHp(100));
+                  await sleep(200);
                   continue;
                 }
                 const aim = await page.evaluate(() => {
