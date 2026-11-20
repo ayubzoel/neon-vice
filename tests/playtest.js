@@ -75,7 +75,7 @@ async function waitFor(page, fn, timeout = 30000, label = '') {
 
 // Drive on foot toward a target using keyboard heading control.
 // Simple controller: compute desired heading, turn with A/D, hold W.
-async function walkTo(page, x, z, timeout = 60000) {
+async function walkTo(page, x, z, timeout = 60000, radius = 9) {
   const t0 = Date.now();
   let lastDist = Infinity;
   let stuck = 0;
@@ -83,7 +83,7 @@ async function walkTo(page, x, z, timeout = 60000) {
     const h = await hero(page);
     const dx = x - h.x, dz = z - h.z;
     const dist = Math.hypot(dx, dz);
-    if (dist < 9) { await page.keyboard.up('KeyW'); await page.keyboard.up('KeyA'); await page.keyboard.up('KeyD'); return true; }
+    if (dist < radius) { await page.keyboard.up('KeyW'); await page.keyboard.up('KeyA'); await page.keyboard.up('KeyD'); return true; }
     if (Math.abs(dist - lastDist) < 0.2) stuck += 1; else stuck = 0;
     lastDist = dist;
     if (stuck > 40) { // turn around a bit / back up
@@ -135,7 +135,7 @@ async function driveTo(page, x, z, timeout = 90000) {
 
 // Teleport to 35 m from a target, then walk the last leg. The commute is
 // not what a mission test measures; the trigger/completion logic is.
-async function walkToNear(page, x, z, timeout = 60000) {
+async function walkToNear(page, x, z, timeout = 60000, radius = 9) {
   const h = await hero(page);
   const dx = x - h.x, dz = z - h.z;
   const d = Math.hypot(dx, dz);
@@ -145,7 +145,7 @@ async function walkToNear(page, x, z, timeout = 60000) {
     await dbg(page, `window.NEON_VICE.debug.teleport(${nx.toFixed(1)}, ${nz.toFixed(1)})`);
     await sleep(300);
   }
-  return walkTo(page, x, z, timeout);
+  return walkTo(page, x, z, timeout, radius);
 }
 
 // Wait until the current mission stage advances / mission ends.
@@ -284,7 +284,7 @@ async function main() {
               const t = window.NEON_VICE.game.missions.stageTarget();
               return t ? [t.x, t.z] : null;
             });
-            if (tgt0) await walkToNear(page, tgt0[0], tgt0[1], 45000);
+            if (tgt0) await walkToNear(page, tgt0[0], tgt0[1], 45000, 4);
             await pressKey(page, 'KeyE');
             await sleep(500);
             const s1 = await stats(page);
@@ -301,7 +301,7 @@ async function main() {
             } else { note = 'could not enter vehicle'; }
           } else if (n === 5) {
             // race in the plaza car, teleporting near each live checkpoint
-            await walkToNear(page, 12, 12);
+            await walkToNear(page, 12, 12, 45000, 4);
             await pressKey(page, 'KeyE');
             await sleep(400);
             const s1 = await stats(page);
@@ -388,7 +388,7 @@ async function main() {
               const t = window.NEON_VICE.game.missions.stageTarget();
               return t ? [t.x, t.z] : null;
             });
-            if (tgt0) await walkToNear(page, tgt0[0], tgt0[1], 45000);
+            if (tgt0) await walkToNear(page, tgt0[0], tgt0[1], 45000, 4);
             await pressKey(page, 'KeyE');
             await sleep(500);
             const s1 = await stats(page);
@@ -435,7 +435,7 @@ async function main() {
       log('side job package', ok, '');
       await page.evaluate(() => window.NEON_VICE.debug.startSideJob('race'));
       // race in the plaza car
-      await walkToNear(page, 12, 12);
+      await walkToNear(page, 12, 12, 45000, 4);
       await pressKey(page, 'KeyE');
       await sleep(400);
       ok = true;
@@ -463,8 +463,6 @@ async function main() {
       await sleep(300);
       const holstered = await page.evaluate(() => window.NEON_VICE.game.combat.holstered);
       await page.screenshot({ path: '/tmp/neonvice-holstered.jpg', type: 'jpeg', quality: 75 });
-      await sleep(300);
-      const holstered = await page.evaluate(() => window.NEON_VICE.game.combat.holstered);
       log('combat holster toggle', armed && holstered, `armed=${armed} holstered=${holstered}`);
       // Shoot: spawn enemy in front, aim, fire until dead.
       await page.evaluate(() => {

@@ -217,7 +217,7 @@ function dieAndRespawn() {
 // ---- Interaction (E) ----
 function nearestInteractable() {
   const p = player.group.position;
-  const v = vehicles.nearestVehicle(p.x, p.z, 4.5);
+  const v = vehicles.nearestVehicle(p.x, p.z, 6);
   if (v) return { kind: 'vehicle', vehicle: v };
   // Boats sit in the water just past the shore: allow boarding from the dock.
   const boat = vehicles.list.find((x) => x.kind === 'boat' && Math.hypot(x.mesh.position.x - p.x, x.mesh.position.z - p.z) < 12);

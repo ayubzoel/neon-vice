@@ -213,7 +213,9 @@ export function createMissions(scene, world, ctx) {
       stageState.tz = spot.z;
       const near = ctx.vehicles.nearestVehicle(spot.x, spot.z, 25);
       if (!near || near.kind !== stage.kind) {
-        const v = ctx.vehicles.addVehicle(stage.kind, 0xf59e0b, spot.x + 4, spot.z + 4, 0, { parked: true, missionCar: true });
+        // Park the mission vehicle exactly on the stage target so the
+        // player walks straight onto it (E enters within 6 m).
+        const v = ctx.vehicles.addVehicle(stage.kind, 0xf59e0b, spot.x, spot.z, 0, { parked: true, missionCar: true });
         stageState.missionVehicle = v;
       } else {
         stageState.missionVehicle = near;
