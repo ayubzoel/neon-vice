@@ -77,17 +77,21 @@ async function waitFor(page, fn, timeout = 30000, label = '') {
 // Simple controller: compute desired heading, turn with A/D, hold W.
 async function walkTo(page, x, z, timeout = 60000, radius = 9) {
   const t0 = Date.now();
-  let lastDist = Infinity;
-  let stuck = 0;
+  let checkTime = Date.now();
+  let checkDist = Infinity;
   while (Date.now() - t0 < timeout) {
     const h = await hero(page);
     const dx = x - h.x, dz = z - h.z;
     const dist = Math.hypot(dx, dz);
     if (dist < radius) { await page.keyboard.up('KeyW'); await page.keyboard.up('KeyA'); await page.keyboard.up('KeyD'); return true; }
-    if (Math.abs(dist - lastDist) < 0.2) stuck += 1; else stuck = 0;
-    lastDist = dist;
-    if (stuck > 40) { // turn around a bit / back up
-      await page.keyboard.down('KeyS'); await sleep(400); await page.keyboard.up('KeyS'); stuck = 0;
+    // Stuck check on a WALL-CLOCK window: at ~3 FPS the same frame is
+    // sampled twice, so a per-sample counter fires spuriously.
+    if (Date.now() - checkTime > 2000) {
+      if (dist > checkDist - 1) {
+        await page.keyboard.down('KeyS'); await sleep(400); await page.keyboard.up('KeyS');
+      }
+      checkDist = dist;
+      checkTime = Date.now();
     }
     const desired = Math.atan2(dx, dz);
     let diff = desired - h.heading;
@@ -136,8 +140,8 @@ async function driveTo(page, x, z, timeout = 90000, opts = {}) {
 
 async function driveLeg(page, x, z, timeout = 90000) {
   const t0 = Date.now();
-  let lastDist = Infinity;
-  let stuck = 0;
+  let checkTime = Date.now();
+  let checkDist = Infinity;
   while (Date.now() - t0 < timeout) {
     const s = await stats(page);
     if (!s.driving) return false;
@@ -145,9 +149,14 @@ async function driveLeg(page, x, z, timeout = 90000) {
     const dx = x - h.x, dz = z - h.z;
     const dist = Math.hypot(dx, dz);
     if (dist < 12) { await page.keyboard.up('KeyW'); await page.keyboard.up('KeyA'); await page.keyboard.up('KeyD'); return true; }
-    if (Math.abs(dist - lastDist) < 0.2) stuck += 1; else stuck = 0;
-    lastDist = dist;
-    if (stuck > 60) { await page.keyboard.down('KeyS'); await sleep(800); await page.keyboard.up('KeyS'); stuck = 0; }
+    // Stuck check on a WALL-CLOCK window (see walkTo).
+    if (Date.now() - checkTime > 2000) {
+      if (dist > checkDist - 2) {
+        await page.keyboard.down('KeyS'); await sleep(800); await page.keyboard.up('KeyS');
+      }
+      checkDist = dist;
+      checkTime = Date.now();
+    }
     const desired = Math.atan2(dx, dz);
     let diff = desired - h.heading;
     while (diff > Math.PI) diff -= Math.PI * 2;
@@ -309,7 +318,9 @@ async function main() {
         let note = '';
         try {
           if (n === 4 || n === 10) {
-            // enter vehicle: walk to the live stage target, press E, drive on
+            // enter vehicle: exit any car left over from a previous mission,
+            // walk to the live stage target, press E, drive on
+            if ((await stats(page)).driving) { await pressKey(page, 'KeyE'); await sleep(400); }
             const tgt0 = await page.evaluate(() => {
               const t = window.NEON_VICE.game.missions.stageTarget();
               return t ? [t.x, t.z] : null;
@@ -366,7 +377,9 @@ async function main() {
               note = note || 'checkpoints done';
             }
           } else if (n === 6 || n === 7 || n === 12) {
-            // combat: unholster, kite to enemies, aim via debug heading, shoot.
+            // combat: exit any vehicle left over from a previous mission,
+            // unholster, kite to enemies, aim via debug heading, shoot.
+            if ((await stats(page)).driving) { await pressKey(page, 'KeyE'); await sleep(400); }
             const spot = n === 6 ? P.southBeach : n === 7 ? P.warehouse : P.yacht;
             await walkToNear(page, spot[0] + 20, spot[1] + 20);
             await pressKey(page, 'KeyH');
@@ -437,6 +450,7 @@ async function main() {
               note = 'hold + deliver via goto runner';
             }
           } else if (n === 8) {
+            if ((await stats(page)).driving) { await pressKey(page, 'KeyE'); await sleep(400); }
             const tgt0 = await page.evaluate(() => {
               const t = window.NEON_VICE.game.missions.stageTarget();
               return t ? [t.x, t.z] : null;
