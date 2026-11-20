@@ -1,6 +1,8 @@
 // A tiny static server for game/ (Node 22+, standard library only), so an entry
 // can be played locally without a build step: `node serve.ts` serves game/ on
-// http://localhost:8080 (or --port <port>). It sends the MIME types a browser
+// http://localhost:8080 (or --port <port>). `--host <addr>` picks the bind
+// address (default 127.0.0.1); `--host 0.0.0.0` exposes it on the LAN so a
+// phone on the same Wi-Fi can open the game. It sends the MIME types a browser
 // game needs, refuses any path outside game/, and otherwise does nothing
 // clever: this is a development convenience, not a web server for the internet.
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -13,6 +15,8 @@ const args = process.argv.slice(2);
 const portIndex = args.indexOf('--port');
 const requested = portIndex === -1 ? 8080 : Number(args[portIndex + 1]);
 const port = Number.isInteger(requested) && requested > 0 && requested < 65536 ? requested : 8080;
+const hostIndex = args.indexOf('--host');
+const host = hostIndex === -1 || !args[hostIndex + 1] ? '127.0.0.1' : args[hostIndex + 1];
 
 // Refuse to start when the entrypoint or the vendored three.js is missing — a
 // server that answers 404 for the game itself only wastes a test run.
@@ -83,6 +87,6 @@ createServer((request, response) => {
     return;
   }
   createReadStream(file).pipe(response);
-}).listen(port, '127.0.0.1', () => {
-  console.log(`Neon Vice — open http://localhost:${port}/`);
+}).listen(port, host, () => {
+  console.log(`Neon Vice — open http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/`);
 });

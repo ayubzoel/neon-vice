@@ -14,7 +14,7 @@ const DUSK_SKY = new THREE.Color(0x2b1e4a);
 const DAY_FOG = new THREE.Color(0x9fc6e2);
 const NIGHT_FOG = new THREE.Color(0x0d1226);
 
-export function createWeather(scene) {
+export function createWeather(scene, opts = {}) {
   let hour = CONFIG.weather.startHour; // 0..24
   let rain = 0; // 0 none, 1 full
   let rainTarget = 0;
@@ -24,8 +24,24 @@ export function createWeather(scene) {
   const hemi = scene.children.find((c) => c.isHemisphereLight) || null;
   const sun = scene.children.find((c) => c.isDirectionalLight) || null;
 
-  // Rain particles: 900 points in a 60x30x60 box around the player.
-  const RAIN_COUNT = 900;
+  // Rain particle count follows graphics quality: on low quality only ~300
+  // of the 900 drops are simulated and drawn, which saves a per-frame buffer
+  // rewrite where FPS is scarcest. Quality comes from the caller when given;
+  // otherwise the same software-renderer probe main.js uses for its default
+  // quality decides (SwiftShader/llvmpipe => 'low').
+  function isSoftwareGL() {
+    try {
+      const probe = document.createElement('canvas').getContext('webgl');
+      const ext = probe && probe.getExtension('WEBGL_debug_renderer_info');
+      const name = ext ? probe.getParameter(ext.UNMASKED_RENDERER_WEBGL) : '';
+      if (probe) probe.getExtension('WEBGL_lose_context')?.loseContext();
+      return /swiftshader|llvmpipe|software|basic render/i.test(String(name));
+    } catch { return false; }
+  }
+  const quality = opts.quality ?? (isSoftwareGL() ? 'low' : 'high');
+  // Rain particles: 900 points in a 60x30x60 box around the player
+  // (300 on low quality).
+  const RAIN_COUNT = quality === 'low' ? 300 : 900;
   const rainGeo = new THREE.BufferGeometry();
   const rainPos = new Float32Array(RAIN_COUNT * 3);
   for (let i = 0; i < RAIN_COUNT; i += 1) {
@@ -81,6 +97,8 @@ export function createWeather(scene) {
     get hour() { return hour; },
     get raining() { return rain > 0.3; },
     get rainAmount() { return rain; },
+    get quality() { return quality; },
+    get rainCount() { return RAIN_COUNT; },
     clockText() {
       const h = Math.floor(hour) % 24;
       const m = Math.floor((hour % 1) * 60);

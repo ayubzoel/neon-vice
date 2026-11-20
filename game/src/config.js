@@ -1,7 +1,8 @@
-// Neon Vice — scaffold v1: shared constants for the minimal playable skeleton.
-// Small map on purpose (Ayub's brief: "map kecil, yang penting smooth dan
-// tanpa bug"): 1200 x 900 m of flat ground, one placeholder hero, no city yet.
-// Builder B/C owns the city, missions, vehicles and gameplay on top of this.
+// Neon Vice — shared constants for the game. (Was the v1 scaffold: a minimal
+// playable skeleton on flat ground. The city is built now — street grid,
+// buildings, beach/water, shops, missions, vehicles, weather and traffic all
+// run on top of these values; the map stays small on purpose, Ayub's brief:
+// "map kecil, yang penting smooth dan tanpa bug": 1200 x 900 m.)
 
 export const CONFIG = {
   title: 'Neon Vice',
@@ -53,7 +54,9 @@ export const CONFIG = {
     smg: { name: 'SMG', damage: 16, magSize: 30, reserveMax: 240, range: 55, fireInterval: 0.09, reloadTime: 1.4, price: 1500, ammoPrice: 150 },
   },
 
-  // Fallback places used when Builder B's world.destinations is not present yet.
+  // Named places the game reads everywhere (missions, shops, map, vehicle
+  // spawns): the live place table, not a fallback — world.destinations is
+  // built from the same coordinates.
   // Coordinates are inside the 1200x900 field (x -600..600, z -450..450).
   places: {
     plaza: { x: 0, z: 0, name: 'Plaza' },

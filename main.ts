@@ -1,16 +1,12 @@
-// Neon Vice — scaffold v1 build (Node 22+, standard library only): the game is
-// this directory's game/ folder, plain static files a desktop browser loads
+// Neon Vice — build (Node 22+, standard library only): the game is this
+// directory's game/ folder, plain static files a desktop browser loads
 // offline (game/index.html and its ES modules plus the vendored three.js, no
 // network request), and the program hands it in. It copies game/ and
-// screenshots/ from beside this file to /output and, once screenshots exist,
-// writes /output/dossier.json, the summary the judge reads, with the vendored
-// make.fun library.
-//
-// Scaffold note: screenshots/ is still empty, and buildDossier refuses a
-// dossier with no screenshots — so this build skips the dossier with a warning
-// and still exits 0. Builder B/C must add 3-4 renders (each at most 256 KiB)
-// to screenshots/ before any submit; from then on the dossier is written and
-// the screenshot gate below fails the build early instead of the server.
+// screenshots/ from beside this file to /output and writes
+// /output/dossier.json, the summary the judge reads, with the vendored
+// make.fun library. screenshots/ holds 4 renders (1-start, 2-play, 3-chase,
+// 4-map, each at most 256 KiB); the gate below fails the build early if that
+// breaks instead of letting buildDossier refuse the entry after the copy.
 //
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
@@ -78,8 +74,10 @@ const gameStats = countTree(join(here, 'game'));
 console.log(`Neon Vice build: game/ ${gameStats.files} files, ${(gameStats.bytes / 1048576).toFixed(2)} MiB; screenshots: ${shotFiles.join(', ') || '(none yet)'}`);
 
 if (shotFiles.length === 0) {
-  // Scaffold: no dossier without screenshots (buildDossier refuses one), but
-  // the build itself must stay green so the skeleton can be tested.
+  // No dossier without screenshots (buildDossier refuses one) — but the
+  // build itself must stay green so the game can still be tested locally.
+  // (screenshots/ is no longer empty: 4 renders live there now, so this
+  // branch only fires if they are ever deleted.)
   console.log('Neon Vice build: no screenshots yet — dossier.json skipped (add 3-4 renders in screenshots/ before submit).');
 } else {
   // The scorer's own caps (reference/gate.json): only text_max_bytes shapes the bytes; the others refuse an entry the

@@ -1,5 +1,9 @@
 // Neon Vice — procedural canvas textures (Builder B). No external assets:
 // every surface in Vice Harbor is drawn on a canvas at load time.
+// Speckle uses the seeded mulberry32 from data.js (not Math.random), so the
+// textures are identical on every load — same city, same look.
+
+import { mulberry32 } from './data.js';
 
 function canvasTexture(w, h, draw) {
   const canvas = document.createElement('canvas');
@@ -11,10 +15,15 @@ function canvasTexture(w, h, draw) {
   return tex;
 }
 
+// One fresh seeded RNG per speckle call (seed advances in call order, which
+// is fixed at load time), so each texture keeps its own grain but every load
+// draws the exact same grain.
+let speckleSeed = 1;
 function speckle(ctx, w, h, n, color, maxSize = 2) {
+  const rng = mulberry32((speckleSeed++ * 2654435761) >>> 0);
   ctx.fillStyle = color;
   for (let i = 0; i < n; i++) {
-    ctx.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * maxSize, 1 + Math.random() * maxSize);
+    ctx.fillRect(rng() * w, rng() * h, 1 + rng() * maxSize, 1 + rng() * maxSize);
   }
 }
 

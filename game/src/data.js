@@ -13,11 +13,12 @@ export const H_WIDTHS = [10, 12, 8, 12, 8, 12, 10];
 export const WATER_X0 = 470; // water starts here (east strip)
 export const SAND_X0 = 420; // beach sand starts here
 export const QUAY_X0 = 360; // concrete quay starts here
+export const DOWNTOWN_BOUNDARY_X = -80; // x < this is downtown (see zoneOf)
 
 // Zones by cell centre (cx, cz).
 export function zoneOf(cx, cz) {
   if (cx >= QUAY_X0) return 'quay';
-  if (cx < -80) return 'downtown';
+  if (cx < DOWNTOWN_BOUNDARY_X) return 'downtown';
   if (cz < 0) return 'harbor';
   return 'beach';
 }
@@ -26,17 +27,17 @@ export function zoneOf(cx, cz) {
 // (downtown / harbor / beach). Centres sit inside block interiors, never on
 // a road. Footprints are kept clear of random buildings by world.js.
 export const RESERVED = [
-  // Downtown (x < -80)
+  // Downtown (x < DOWNTOWN_BOUNDARY_X)
   { id: 'worship-1', kind: 'worship', name: 'Gereja St. Maria', area: 'downtown', x: -480, z: -300, w: 22, d: 18, h: 16 },
   { id: 'worship-2', kind: 'worship', name: 'Masjid Al-Nur', area: 'downtown', x: -120, z: 300, w: 24, d: 20, h: 15 },
   { id: 'vital-1', kind: 'vital-hospital', name: 'RS Umum Vice', area: 'downtown', x: -480, z: 300, w: 30, d: 22, h: 18 },
   { id: 'vital-2', kind: 'vital-police', name: 'Polsek Downtown', area: 'downtown', x: -240, z: -60, w: 24, d: 18, h: 12 },
-  // Harbor (x in [-80, 360), z < 0)
+  // Harbor (x in [DOWNTOWN_BOUNDARY_X, 360), z < 0)
   { id: 'worship-3', kind: 'worship', name: 'Kuil Dewi Harbor', area: 'harbor', x: 120, z: -300, w: 20, d: 16, h: 14 },
   { id: 'worship-4', kind: 'worship', name: 'Gereja Pelabuhan', area: 'harbor', x: 240, z: -60, w: 20, d: 16, h: 14 },
   { id: 'vital-3', kind: 'vital-hospital', name: 'RS Harbor', area: 'harbor', x: 120, z: -180, w: 28, d: 20, h: 16 },
   { id: 'vital-4', kind: 'vital-police', name: 'Polsek Pelabuhan', area: 'harbor', x: 240, z: -300, w: 24, d: 18, h: 12 },
-  // Beach (x in [-80, 460), z >= 0)
+  // Beach (x in [DOWNTOWN_BOUNDARY_X, 460), z >= 0)
   { id: 'worship-5', kind: 'worship', name: 'Masjid Pantai', area: 'beach', x: 120, z: 300, w: 22, d: 18, h: 15 },
   { id: 'worship-6', kind: 'worship', name: 'Vihara Lotus', area: 'beach', x: 240, z: 180, w: 20, d: 16, h: 13 },
   { id: 'vital-5', kind: 'vital-hospital', name: 'RS Pantai', area: 'beach', x: 120, z: 60, w: 28, d: 20, h: 16 },

@@ -56,7 +56,14 @@ export function buildRoadGraph(xs, zs, vWidths, hWidths) {
     return best;
   }
 
+  // The graph is static (built once above), so BFS results are cached per
+  // start node: GPS, driving AI and pedestrians call findPath() every frame
+  // from the same few nodes, and re-running BFS each time is pure waste.
+  // Cached `prev` maps are only read, never mutated, by findPath/bfsFrom.
+  const bfsCache = new Map();
   function bfs(startId) {
+    const cached = bfsCache.get(startId);
+    if (cached) return cached;
     const prev = new Map([[startId, -1]]);
     const queue = [startId];
     for (let qi = 0; qi < queue.length; qi++) {
@@ -65,6 +72,7 @@ export function buildRoadGraph(xs, zs, vWidths, hWidths) {
         if (!prev.has(to)) { prev.set(to, cur); queue.push(to); }
       }
     }
+    bfsCache.set(startId, prev);
     return prev;
   }
 
