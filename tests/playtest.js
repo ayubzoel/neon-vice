@@ -175,10 +175,12 @@ async function driveLeg(page, x, z, timeout = 90000, final = false) {
     let diff = desired - h.heading;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
-    // Approach control (final leg only): a car at 30 m/s jumps 12 m per
-    // frame and overshoots a small acceptance radius forever. Brake early,
-    // creep under 4 m/s, sample every 60 ms so the crossing is not missed.
-    if (!final || dist > 45) {
+    // Sharp turns (|diff| > ~70°) at speed swing the car off the road: the
+    // U-turn after an intermediate node has a ~16 m radius at 30 m/s and
+    // wedges the car into a block. Brake to <5 m/s first, then turn tight.
+    if (Math.abs(diff) > 1.2 && s.speed > 5) {
+      await page.keyboard.up('KeyW'); await page.keyboard.down('KeyS');
+    } else if (!final || dist > 45) {
       await page.keyboard.down('KeyW'); await page.keyboard.up('KeyS');
     } else if (s.speed > 10) {
       await page.keyboard.up('KeyW'); await page.keyboard.down('KeyS');
@@ -418,9 +420,10 @@ async function main() {
             const t0 = Date.now();
             let done = false;
             let lastLog = 0;
-            // Hold the fire button: at ~3 FPS a 50 ms click falls between
-            // frames and is never seen by the polled mouseDown flag.
-            await page.mouse.down();
+            let firing = false;
+            // Fire ONLY while aimed at a living thug in range: holding fire
+            // through the whole loop burned all 72 pistol rounds in mission
+            // 6 (mag 0, reserve 0) and left mission 7 defenseless.
             try {
               while (Date.now() - t0 < 150000) {
                 const st = await stats(page);
@@ -462,20 +465,24 @@ async function main() {
                   return { aimed: true, dist, x: e.mesh.position.x, z: e.mesh.position.z };
                 });
                 if (aim.aimed && aim.dist < 55) {
-                  await sleep(400); // firing (mouse held down)
-                } else if (aim.aimed) {
-                  // Too far to hit: close the distance first.
-                  await walkToNear(page, aim.x, aim.z, 30000);
+                  if (!firing) { await page.mouse.down(); firing = true; }
+                  await sleep(400); // firing while aimed
                 } else {
-                  // No enemies left — follow the live stage target.
-                  const tgt = await page.evaluate(() => {
-                    const t = window.NEON_VICE.game.missions.stageTarget();
-                    return t ? [t.x, t.z] : null;
-                  });
-                  if (tgt) {
-                    await walkToNear(page, tgt[0], tgt[1], 30000);
-                    await waitForAdvance(page, 40000);
-                  } else await sleep(500);
+                  if (firing) { await page.mouse.up(); firing = false; }
+                  if (aim.aimed) {
+                    // Too far to hit: close the distance first.
+                    await walkToNear(page, aim.x, aim.z, 30000);
+                  } else {
+                    // No enemies left — follow the live stage target.
+                    const tgt = await page.evaluate(() => {
+                      const t = window.NEON_VICE.game.missions.stageTarget();
+                      return t ? [t.x, t.z] : null;
+                    });
+                    if (tgt) {
+                      await walkToNear(page, tgt[0], tgt[1], 30000);
+                      await waitForAdvance(page, 40000);
+                    } else await sleep(500);
+                  }
                 }
               }
             } finally {
