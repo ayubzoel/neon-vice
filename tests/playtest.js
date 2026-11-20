@@ -162,12 +162,13 @@ async function driveLeg(page, x, z, timeout = 90000) {
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
     // Approach control: a car at 30 m/s jumps 12 m per frame and overshoots
-    // a 12 m acceptance radius forever. Brake under 30 m, creep under 3 m/s.
-    if (dist > 30) {
+    // a 12 m acceptance radius forever. Brake early, creep under 4 m/s, and
+    // sample every 60 ms so the crossing is not missed between samples.
+    if (dist > 45) {
       await page.keyboard.down('KeyW'); await page.keyboard.up('KeyS');
-    } else if (s.speed > 8) {
+    } else if (s.speed > 10) {
       await page.keyboard.up('KeyW'); await page.keyboard.down('KeyS');
-    } else if (s.speed < 3) {
+    } else if (s.speed < 4) {
       await page.keyboard.down('KeyW'); await page.keyboard.up('KeyS');
     } else {
       await page.keyboard.up('KeyW'); await page.keyboard.up('KeyS');
@@ -176,7 +177,7 @@ async function driveLeg(page, x, z, timeout = 90000) {
     if (diff > 0.12) { await page.keyboard.down('KeyA'); await page.keyboard.up('KeyD'); }
     else if (diff < -0.12) { await page.keyboard.down('KeyD'); await page.keyboard.up('KeyA'); }
     else { await page.keyboard.up('KeyA'); await page.keyboard.up('KeyD'); }
-    await sleep(120);
+    await sleep(60);
   }
   await page.keyboard.up('KeyW'); await page.keyboard.up('KeyA'); await page.keyboard.up('KeyD');
   return false;
@@ -394,8 +395,12 @@ async function main() {
             await page.evaluate(() => { window.NEON_VICE.debug.setWanted(0); window.NEON_VICE.debug.clearPolice(); });
             const spot = n === 6 ? P.southBeach : n === 7 ? P.warehouse : P.yacht;
             await walkToNear(page, spot[0] + 20, spot[1] + 20);
-            await pressKey(page, 'KeyH');
-            await sleep(200);
+            // Un-holster deterministically: the previous mission may already
+            // have left the weapon out, and a blind H press would holster it.
+            await page.evaluate(() => {
+              if (window.NEON_VICE.game.combat.holstered) window.NEON_VICE.game.input.press('holster');
+            });
+            await sleep(300);
             const t0 = Date.now();
             let done = false;
             // Hold the fire button: at ~3 FPS a 50 ms click falls between
