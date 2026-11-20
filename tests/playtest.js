@@ -396,7 +396,9 @@ async function main() {
             await waitForAdvance(page, 60000);
             continue;
           }
-          await walkToNear(page, tgt[0], tgt[1], 45000);
+          // Radius 6: hold stages need the player inside an 8 m ring
+          // (the default 9 m left Vera outside it forever, mission 11).
+          await walkToNear(page, tgt[0], tgt[1], 45000, 6);
           await waitForAdvance(page, 45000);
         }
         return false;
@@ -460,8 +462,10 @@ async function main() {
             // Stand and fight (the isolated probe kills all thugs in
             // ~9 s this way): teleport-kiting breaks the fight because
             // the thugs then have to be chased back through buildings.
-            // Heal in place instead.
-            if (st.hp < 50) {
+            // Heal in place instead — and heal after every walk, since
+            // a 30 s walk under fire from 4 guards killed Vera in
+            // mission 12 while the loop never re-checked hp.
+            if (st.hp < 75) {
               await page.evaluate(() => window.NEON_VICE.debug.setHp(100));
               await sleep(200);
               continue;
@@ -496,7 +500,8 @@ async function main() {
                 // At 3 FPS the heading is re-aimed ~once a second, and a
                 // target moving 6.5 m/s walks out of the 14-degree cone at
                 // long range; up close the same stale heading still lands.
-                await walkToNear(page, aim.x, aim.z, 30000, 12);
+                await walkToNear(page, aim.x, aim.z, 15000, 12);
+                await page.evaluate(() => window.NEON_VICE.debug.setHp(100));
               } else {
                 // No enemies left — follow the live stage target.
                 const tgt = await page.evaluate(() => {
@@ -528,7 +533,7 @@ async function main() {
             // them before touching the car.
             if (n === 10) {
               const c = await playCombat(page, 10, P.impound);
-              if (!c.ok) { ok = false; note = c.note; }
+              ok = c.ok; note = c.note;
             }
             if (ok || n === 4) {
             // enter vehicle: exit any car left over from a previous mission,
