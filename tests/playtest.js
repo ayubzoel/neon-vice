@@ -796,7 +796,9 @@ async function main() {
       const { page, errors } = await newPage(browser);
       await startGame(page);
       await page.evaluate(() => window.NEON_VICE.debug.setMoney(7777));
-      await walkTo(page, 100, 100, 30000);
+      // walkToNear teleports to 35 m out: a full 141 m walk from spawn takes
+      // ~64 s real at the 0.37x SwiftShader ratio and starved the 30 s cap.
+      await walkToNear(page, 100, 100, 60000);
       await page.evaluate(() => window.NEON_VICE.game.save.save());
       const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('neonvice-save-v1') || 'null'));
       log('save writes localStorage', !!saved && saved.money === 7777, saved ? `money=${saved.money} x=${saved.x}` : 'no save');
