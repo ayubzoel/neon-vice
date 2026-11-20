@@ -425,6 +425,12 @@ async function main() {
         await page.evaluate(() => { window.NEON_VICE.debug.giveWeapon('smg'); });
         await pressKey(page, 'Digit2');
         await sleep(300);
+        // The kill stage is done the moment its stage index advances (the
+        // last guard dies) — not when the whole mission ends. Missions 6
+        // and 12 have a goto after the fight, and 10 has the car + drive;
+        // the old exit condition waited for the whole mission and burned
+        // the full 150 s while the player took fire from chase police.
+        const entryStage = await page.evaluate(() => window.NEON_VICE.game.missions.stageIndex);
         const t0 = Date.now();
         let done = false;
         let lastLog = 0;
@@ -435,7 +441,9 @@ async function main() {
         try {
           while (Date.now() - t0 < 150000) {
             const st = await stats(page);
-            if (st.missionId !== n || st.mission === 'done' || st.mission === 'failed') { done = st.mission === 'done' || st.missionId !== n; break; }
+            const curStage = await page.evaluate(() => window.NEON_VICE.game.missions.stageIndex);
+            if (st.mission === 'failed') { done = false; break; }
+            if (st.missionId !== n || st.mission === 'done' || curStage !== entryStage) { done = true; break; }
             if (Date.now() - lastLog > 10000) {
               lastLog = Date.now();
               const diag = await page.evaluate(() => {
@@ -586,6 +594,10 @@ async function main() {
             const spot = n === 6 ? P.southBeach : n === 7 ? P.warehouse : P.yacht;
             const c = await playCombat(page, n, spot);
             ok = c.ok; note = c.note;
+            if (n === 6 && ok) {
+              ok = await playGoto(6, 120000);
+              note = 'kill + deliver via goto runner';
+            }
             if (n === 12 && ok) {
               ok = await playGoto(12, 120000);
               note = 'hold + deliver via goto runner';
