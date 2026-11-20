@@ -659,13 +659,25 @@ async function main() {
       ok = await walkToNear(page, 100, 400, 60000);
       log('side job package', ok, '');
       await page.evaluate(() => window.NEON_VICE.debug.startSideJob('race'));
-      // race in the plaza car — follow the game's LIVE (road-snapped)
-      // checkpoints, not the raw coords: the raw points sit inside blocks
-      // and the car wedges into a building driving straight at them.
-      await walkToNear(page, 12, 12, 45000, 4);
+      // race in the plaza car — walk to the CAR itself, not a fixed point:
+      // the car sits at (12,8) and walking to (12,12) can stop 8 m away,
+      // outside the 6 m enter radius, so E did nothing and the race failed.
+      const carPos = await page.evaluate(() => {
+        const g = window.NEON_VICE.game;
+        const p = g.player.group.position;
+        let best = null;
+        let bestD = Infinity;
+        for (const v of g.vehicles.list) {
+          if (!v.parked || v.kind === 'boat') continue;
+          const d = Math.hypot(v.mesh.position.x - p.x, v.mesh.position.z - p.z);
+          if (d < bestD) { bestD = d; best = v; }
+        }
+        return best ? [best.mesh.position.x, best.mesh.position.z] : null;
+      });
+      if (carPos) await walkToNear(page, carPos[0], carPos[1], 45000, 4);
       await pressKey(page, 'KeyE');
       await sleep(400);
-      ok = true;
+      ok = (await stats(page)).driving;
       const raceMoney0 = (await stats(page)).money;
       for (let i = 0; i < 3; i += 1) {
         const cp = await page.evaluate(() => {
