@@ -442,7 +442,10 @@ async function main() {
                 const g = window.NEON_VICE.game;
                 const p = g.player.group.position;
                 const alive = g.missions.stageSpawned().filter((e) => !e.dead).map((e) => `(${e.x.toFixed(0)},${e.z.toFixed(0)}):${e.kind}:${e.hp}`);
-                return `hp=${g.player.hp} mag=${g.combat.weapons[g.combat.current].mag} res=${g.combat.weapons[g.combat.current].reserve} holstered=${g.combat.holstered} wanted=${g.combat.wanted} police=${g.combat.police.filter((e) => !e.dead).length} pos=(${p.x.toFixed(0)},${p.z.toFixed(0)}) targets=[${alive.join(' ')}]`;
+                const tgt = g.missions.stageSpawned().find((e) => !e.dead);
+                const want = tgt ? +Math.atan2(tgt.x - p.x, tgt.z - p.z).toFixed(2) : null;
+                const inp = g.input.read ? g.input.read() : {};
+                return `hp=${g.player.hp} heading=${g.player.heading.toFixed(2)} want=${want} turn=${inp.turn} fwd=${inp.forward} mag=${g.combat.weapons[g.combat.current].mag} res=${g.combat.weapons[g.combat.current].reserve} holstered=${g.combat.holstered} wanted=${g.combat.wanted} police=${g.combat.police.filter((e) => !e.dead).length} pos=(${p.x.toFixed(0)},${p.z.toFixed(0)}) targets=[${alive.join(' ')}]`;
               });
               console.log(`  combat[${n}] t=${((Date.now() - t0) / 1000).toFixed(0)}s ${diag}`);
             }
