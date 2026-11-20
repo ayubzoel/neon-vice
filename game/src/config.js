@@ -45,4 +45,43 @@ export const CONFIG = {
     heroHead: 0xe8b88a, // skin tone
     heroHair: 0x1f2937, // dark hair
   },
+  // --- Builder C (gameplay) additions — new keys only, scaffold keys untouched ---
+  money: { start: 250, debt: 50000 },
+
+  weapons: {
+    pistol: { name: 'Pistol', damage: 34, magSize: 12, reserveMax: 120, range: 60, fireInterval: 0.28, reloadTime: 1.1, price: 0, ammoPrice: 100 },
+    smg: { name: 'SMG', damage: 16, magSize: 30, reserveMax: 240, range: 55, fireInterval: 0.09, reloadTime: 1.4, price: 1500, ammoPrice: 150 },
+  },
+
+  // Fallback places used when Builder B's world.destinations is not present yet.
+  // Coordinates are inside the 1200x900 field (x -600..600, z -450..450).
+  places: {
+    plaza: { x: 0, z: 0, name: 'Plaza' },
+    ricosBar: { x: 150, z: 100, name: "Rico's Bar" },
+    northMarket: { x: -300, z: -300, name: 'North Market' },
+    westDocks: { x: -500, z: 200, name: 'West Docks' },
+    eastMarina: { x: 500, z: 150, name: 'East Marina' },
+    southBeach: { x: 100, z: 400, name: 'South Beach' },
+    uptown: { x: -400, z: -350, name: 'Uptown' },
+    downtown: { x: 300, z: -300, name: 'Downtown' },
+    airport: { x: -100, z: -400, name: 'Airport' },
+    warehouse: { x: -450, z: -100, name: 'Warehouse' },
+    impound: { x: 350, z: 250, name: 'Police Impound' },
+    yacht: { x: 520, z: 0, name: 'Yacht' },
+    gunShop: { x: -200, z: -200, name: 'Gun Shop' },
+    clothShop: { x: 200, z: -100, name: 'Clothing' },
+    bank: { x: 300, z: -280, name: 'Vice Bank' },
+    safehouse: { x: -400, z: -330, name: 'Safehouse' },
+  },
+
+  // East-edge water strip where the boat lives (x 480..600, z -450..450).
+  water: { x0: 480, x1: 600, z0: -450, z1: 450 },
+
+  weather: {
+    startHour: 21, // night by default — Vice Harbor is a night city
+    dayLengthSec: 600, // one full game day = 10 min of game time
+    rainChance: 0.25, // chance a light shower starts each game hour
+  },
+
+  wanted: { max: 3, decaySeconds: 25 },
 };
