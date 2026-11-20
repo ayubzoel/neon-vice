@@ -12,6 +12,7 @@ import { createInput } from './input.js';
 import { createAudio } from './audio.js';
 import { createWeather } from './weather.js';
 import { createVehicles } from './vehicles.js';
+import { createAmbient } from './ambient.js';
 import { createCombat } from './combat.js';
 import { createMissions, MISSION_DEFS } from './missions.js';
 import { createShops, SHOPS } from './shops.js';
@@ -91,6 +92,7 @@ input.attach();
 const audio = createAudio();
 const weather = createWeather(scene);
 const vehicles = createVehicles(scene, world);
+const ambient = createAmbient(scene, world, vehicles, { isDriven: (v) => v === driving });
 const combat = createCombat(scene, world, player, audio);
 
 const settings = { lang: 'en', volume: 0.7, quality: softwareGL ? 'low' : 'high' };
@@ -446,6 +448,7 @@ function step(dt) {
     audio.setEngine(0, false);
   }
   vehicles.update(dt);
+  ambient.update(dt);
 
   // Combat. No shooting while swimming (BUG-1 swim rules).
   if ((frameInput.fire || mouseDown) && !driving && !player.swimming) combat.shoot();
@@ -591,8 +594,9 @@ function frame(now) {
         mission: missions.status, missionId: missions.currentDef()?.id ?? null,
         driving: !!driving, hour: weather.hour, raining: weather.raining,
         quality: settings.quality, softwareGL, swimming: player.swimming,
+        ambient: ambient.stats(),
       }),
-      game: { player, vehicles, combat, missions, shops, weather, save, map: mapSys, ui, audio, input, world },
+      game: { player, vehicles, ambient, combat, missions, shops, weather, save, map: mapSys, ui, audio, input, world },
       debug: {
         startMission: (n) => {
           const def = missions.startMission(n);
