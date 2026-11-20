@@ -155,6 +155,14 @@ async function driveLeg(page, x, z, timeout = 90000, final = false) {
     const dx = x - h.x, dz = z - h.z;
     const dist = Math.hypot(dx, dz);
     if (dist < accept) { await page.keyboard.up('KeyW'); await page.keyboard.up('KeyA'); await page.keyboard.up('KeyD'); return true; }
+    if (Date.now() - t0 > timeout - 1000) {
+      const diag = await page.evaluate(() => {
+        const g = window.NEON_VICE.game;
+        const p = g.player.group.position;
+        return `pos=(${p.x.toFixed(0)},${p.z.toFixed(0)}) heading=${g.player.heading.toFixed(2)}`;
+      });
+      console.log(`  driveLeg TIMEOUT target=(${x},${z}) final=${final} ${diag}`);
+    }
     // Stuck check on a WALL-CLOCK window (see walkTo).
     if (Date.now() - checkTime > 2000) {
       if (dist > checkDist - 2) {
@@ -409,6 +417,7 @@ async function main() {
             await sleep(300);
             const t0 = Date.now();
             let done = false;
+            let lastLog = 0;
             // Hold the fire button: at ~3 FPS a 50 ms click falls between
             // frames and is never seen by the polled mouseDown flag.
             await page.mouse.down();
@@ -416,6 +425,16 @@ async function main() {
               while (Date.now() - t0 < 150000) {
                 const st = await stats(page);
                 if (st.missionId !== n || st.mission === 'done' || st.mission === 'failed') { done = st.mission === 'done' || st.missionId !== n; break; }
+                if (Date.now() - lastLog > 10000) {
+                  lastLog = Date.now();
+                  const diag = await page.evaluate(() => {
+                    const g = window.NEON_VICE.game;
+                    const p = g.player.group.position;
+                    const alive = g.combat.enemies.filter((e) => !e.dead).map((e) => `(${e.mesh.position.x.toFixed(0)},${e.mesh.position.z.toFixed(0)}):${e.hp}`);
+                    return `hp=${g.player.hp} mag=${g.combat.weapons[g.combat.current].mag} holstered=${g.combat.holstered} wanted=${g.combat.wanted} police=${g.combat.police.filter((e) => !e.dead).length} pos=(${p.x.toFixed(0)},${p.z.toFixed(0)}) alive=[${alive.join(' ')}]`;
+                  });
+                  console.log(`  combat[${n}] t=${((Date.now() - t0) / 1000).toFixed(0)}s ${diag}`);
+                }
                 // Stand and fight (the isolated probe kills all thugs in
                 // ~9 s this way): teleport-kiting breaks the fight because
                 // the thugs then have to be chased back through buildings.
