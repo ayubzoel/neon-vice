@@ -454,11 +454,15 @@ async function main() {
       await startGame(page);
       await page.evaluate(() => window.NEON_VICE.debug.setStepBudget(24));
       await page.evaluate(() => window.NEON_VICE.debug.setMoney(5000));
-      // Holster toggle + screenshots of both states.
+      // Holster toggle + screenshots of both states (to /tmp, not the dossier).
       await pressKey(page, 'KeyH');
       await sleep(300);
       const armed = await page.evaluate(() => !window.NEON_VICE.game.combat.holstered);
+      await page.screenshot({ path: '/tmp/neonvice-armed.jpg', type: 'jpeg', quality: 75 });
       await pressKey(page, 'KeyH');
+      await sleep(300);
+      const holstered = await page.evaluate(() => window.NEON_VICE.game.combat.holstered);
+      await page.screenshot({ path: '/tmp/neonvice-holstered.jpg', type: 'jpeg', quality: 75 });
       await sleep(300);
       const holstered = await page.evaluate(() => window.NEON_VICE.game.combat.holstered);
       log('combat holster toggle', armed && holstered, `armed=${armed} holstered=${holstered}`);

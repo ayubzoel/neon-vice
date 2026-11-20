@@ -82,20 +82,19 @@ export function createCombat(scene, world, player, audio) {
   function refreshWeaponVisibility() {
     for (const [kind, mesh] of Object.entries(weaponMeshes)) {
       const owned = weapons[kind].owned;
-      const active = owned && kind === current && !holstered;
-      mesh.visible = active;
-      if (active) {
-        // In hand.
+      const isCurrent = kind === current;
+      // The current weapon is always visible: in the hand when armed, slung
+      // on the back when holstered. Other weapons stay hidden.
+      mesh.visible = owned && isCurrent;
+      if (!mesh.visible) continue;
+      if (!holstered) {
         if (mesh.parent !== player.handMount) player.handMount.add(mesh);
         mesh.position.set(0, 0, 0);
         mesh.rotation.set(0, 0, 0);
-      } else if (owned) {
-        // Slung on the back.
+      } else {
         if (mesh.parent !== player.backMount) player.backMount.add(mesh);
         mesh.position.set(0, 0, 0);
         mesh.rotation.set(0, 0, 0);
-      } else {
-        mesh.visible = false;
       }
     }
   }
