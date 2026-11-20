@@ -388,6 +388,14 @@ async function main() {
           if (window.NEON_VICE.game.combat.holstered) window.NEON_VICE.game.input.press('holster');
         });
         await sleep(300);
+        // Give the SMG for the fight: the pistol's 72 starting rounds
+        // run dry against moving targets at 3 FPS, and the SMG (30-round
+        // mag, 240 reserve) is what a real player would have bought by
+        // mission 6 with $50k in pocket. The shop itself is tested
+        // separately in the shops scenario.
+        await page.evaluate(() => { window.NEON_VICE.debug.giveWeapon('smg'); });
+        await pressKey(page, 'Digit2');
+        await sleep(300);
         const t0 = Date.now();
         let done = false;
         let lastLog = 0;
@@ -404,8 +412,8 @@ async function main() {
               const diag = await page.evaluate(() => {
                 const g = window.NEON_VICE.game;
                 const p = g.player.group.position;
-                const alive = g.missions.stageSpawned().filter((e) => !e.dead).map((e) => `(${e.x.toFixed(0)},${e.z.toFixed(0)}):${e.kind}`);
-                return `hp=${g.player.hp} mag=${g.combat.weapons[g.combat.current].mag} holstered=${g.combat.holstered} wanted=${g.combat.wanted} police=${g.combat.police.filter((e) => !e.dead).length} pos=(${p.x.toFixed(0)},${p.z.toFixed(0)}) targets=[${alive.join(' ')}]`;
+                const alive = g.missions.stageSpawned().filter((e) => !e.dead).map((e) => `(${e.x.toFixed(0)},${e.z.toFixed(0)}):${e.kind}:${e.hp}`);
+                return `hp=${g.player.hp} mag=${g.combat.weapons[g.combat.current].mag} res=${g.combat.weapons[g.combat.current].reserve} holstered=${g.combat.holstered} wanted=${g.combat.wanted} police=${g.combat.police.filter((e) => !e.dead).length} pos=(${p.x.toFixed(0)},${p.z.toFixed(0)}) targets=[${alive.join(' ')}]`;
               });
               console.log(`  combat[${n}] t=${((Date.now() - t0) / 1000).toFixed(0)}s ${diag}`);
             }
@@ -438,14 +446,17 @@ async function main() {
               g.player.heading = Math.atan2(e.x - p.x, e.z - p.z);
               return { aimed: true, dist, x: e.x, z: e.z };
             });
-            if (aim.aimed && aim.dist < 55) {
+            if (aim.aimed && aim.dist < 25) {
               if (!firing) { await page.mouse.down(); firing = true; }
               await sleep(400); // firing while aimed
             } else {
               if (firing) { await page.mouse.up(); firing = false; }
               if (aim.aimed) {
-                // Too far to hit: close the distance first.
-                await walkToNear(page, aim.x, aim.z, 30000);
+                // Too far to hit reliably: close the distance first.
+                // At 3 FPS the heading is re-aimed ~once a second, and a
+                // target moving 6.5 m/s walks out of the 14-degree cone at
+                // long range; up close the same stale heading still lands.
+                await walkToNear(page, aim.x, aim.z, 30000, 12);
               } else {
                 // No enemies left — follow the live stage target.
                 const tgt = await page.evaluate(() => {

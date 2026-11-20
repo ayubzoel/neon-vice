@@ -203,12 +203,20 @@ export function createCombat(scene, world, player, audio) {
       const dz = pz - e.mesh.position.z;
       const dist = Math.hypot(dx, dz);
       if (dist > 90) continue;
-      // Chase the player, stop at shooting range.
+      // Chase the player, stop at shooting range. Slide along walls: a
+      // straight step into a building used to pin the NPC there forever
+      // (the impound guards never reached the player), so fall back to
+      // axis-separated steps when the diagonal step is blocked.
       if (dist > e.range * 0.55) {
         const nx = e.mesh.position.x + (dx / dist) * e.speed * dt;
         const nz = e.mesh.position.z + (dz / dist) * e.speed * dt;
-        if (!world.collides || !world.collides(nx, nz, 0.6)) {
+        const blocked = (x, z) => world.collides && world.collides(x, z, 0.6);
+        if (!blocked(nx, nz)) {
           e.mesh.position.x = nx;
+          e.mesh.position.z = nz;
+        } else if (!blocked(nx, e.mesh.position.z)) {
+          e.mesh.position.x = nx;
+        } else if (!blocked(e.mesh.position.x, nz)) {
           e.mesh.position.z = nz;
         }
         e.mesh.rotation.y = Math.atan2(dx, dz);
