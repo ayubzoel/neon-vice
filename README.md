@@ -4,7 +4,7 @@
 [![rank](https://make.fun/badge/gta6-01/ayubzoel/neon-vice/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![reward](https://make.fun/badge/gta6-01/ayubzoel/neon-vice/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
-Neon Vice is a 3D open-world action game inspired by GTA 6: a small, smooth Vice City map with no bugs — open streets, drivable cars, missions, a wanted system and shops, playable on PC and mobile. Built as the second, leaner take on the "Make GTA 6" bounty: a compact map done right instead of a huge one done half-way.
+Neon Vice is a 3D open-world action game inspired by GTA 6: a small, smooth Vice Harbor map with no bugs — open streets, drivable cars, missions, a wanted system and shops, playable on PC and mobile. Built as the second, leaner take on the "Make GTA 6" bounty: a compact map done right instead of a huge one done half-way.
 
 Play it now: https://ayubzoel.github.io/neon-vice/game/
 

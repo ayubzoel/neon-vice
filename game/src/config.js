@@ -5,7 +5,8 @@
 
 export const CONFIG = {
   title: 'Neon Vice',
-  heroName: 'Vic Marino',
+  city: 'Vice Harbor',
+  heroName: 'Vera Cruz',
 
   // World: flat ground, metres. The player is clamped inside these bounds.
   world: {
