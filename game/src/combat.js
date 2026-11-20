@@ -108,18 +108,25 @@ export function createCombat(scene, world, player, audio) {
       mesh, hp: opts.hp || 100, kind: opts.kind || 'thug',
       shootTimer: 1 + Math.random(), speed: opts.speed || 4.5,
       damage: opts.damage || 8, range: opts.range || 42, dead: false,
+      mission: !!opts.mission,
     };
     enemies.push(e);
     return e;
   }
 
-  function spawnPolice(x, z) {
+  function spawnPolice(x, z, opts = {}) {
     const mesh = makeNpcMesh(0x1d4ed8, true);
     mesh.position.set(x, 0, z);
     scene.add(mesh);
     const p = {
       mesh, hp: 100, kind: 'police', shootTimer: 1.5,
       speed: 6.5, damage: 6, range: 30, dead: false,
+      // Mission-spawned guards (e.g. mission 10's impound guards) must
+      // survive clearPolice: the harness clears the wanted chasers between
+      // missions, and wiping the guards made the kill stage unfinishable
+      // (the mission still counted them alive, but shoot() could never hit
+      // an object that left the police array).
+      mission: !!opts.mission,
     };
     police.push(p);
     return p;
@@ -127,14 +134,18 @@ export function createCombat(scene, world, player, audio) {
 
   function clearEnemies() {
     for (const list of [enemies, police]) {
-      for (const e of list) scene.remove(e.mesh);
-      list.length = 0;
+      for (let i = list.length - 1; i >= 0; i -= 1) {
+        const e = list[i];
+        if (e.dead || !e.mission) { scene.remove(e.mesh); list.splice(i, 1); }
+      }
     }
   }
 
   function clearPolice() {
-    for (const p of police) scene.remove(p.mesh);
-    police.length = 0;
+    for (let i = police.length - 1; i >= 0; i -= 1) {
+      const p = police[i];
+      if (p.dead || !p.mission) { scene.remove(p.mesh); police.splice(i, 1); }
+    }
   }
 
   function commitCrime(stars) {

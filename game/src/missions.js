@@ -202,8 +202,8 @@ export function createMissions(scene, world, ctx) {
     if (stage.type === 'kill') {
       stageState.spawned = stage.spawn.map((s) => {
         const p = snap(s.x, s.z);
-        if (s.kind === 'police') return ctx.combat.spawnPolice(p.x, p.z);
-        return ctx.combat.spawnEnemy(p.x, p.z, { kind: 'guard' });
+        if (s.kind === 'police') return ctx.combat.spawnPolice(p.x, p.z, { mission: true });
+        return ctx.combat.spawnEnemy(p.x, p.z, { kind: 'guard', mission: true });
       });
       stageState.killed = 0;
     } else if (stage.type === 'enterVehicle') {
