@@ -27,8 +27,18 @@ export const SHOPS = [
 
 export function createShops(scene, ctx) {
   // Visible shop markers: a small kiosk box + floating sign colour.
+  // Shop spots are snapped to open ground (B's city has buildings in block
+  // interiors) so the kiosk never lands inside a footprint.
   const markers = [];
   for (const shop of SHOPS) {
+    let sx = shop.x;
+    let sz = shop.z;
+    try {
+      const g = ctx.world && ctx.world.findOpenGround ? ctx.world.findOpenGround(shop.x, shop.z, 40) : null;
+      if (g) { sx = g.x; sz = g.z; }
+    } catch { /* keep raw */ }
+    shop.x = sx;
+    shop.z = sz;
     const color = shop.id === 'gun' ? 0xef4444 : 0xec4899;
     const kiosk = new THREE.Mesh(
       new THREE.BoxGeometry(6, 4, 5),

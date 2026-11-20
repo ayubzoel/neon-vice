@@ -72,6 +72,15 @@ export function createVehicles(scene, world) {
   let idCounter = 0;
 
   function addVehicle(kind, model, x, z, heading, opts = {}) {
+    // Parked vehicles are snapped to open ground so they never spawn inside
+    // one of Builder B's buildings. Boats are exempt: open ground for them
+    // is water, and B's findOpenGround only returns walkable land.
+    if (kind !== 'boat' && opts.parked !== false && world.findOpenGround) {
+      try {
+        const g = world.findOpenGround(x, z, 30);
+        if (g) { x = g.x; z = g.z; }
+      } catch { /* keep raw */ }
+    }
     const mesh = kind === 'bike' ? makeBike(model) : kind === 'boat' ? makeBoat(model) : makeCarBody(model, kind);
     mesh.position.set(x, kind === 'boat' ? 0.15 : 0, z);
     mesh.rotation.y = heading;
@@ -107,22 +116,26 @@ export function createVehicles(scene, world) {
   addVehicle('sedan', 0x8b5cf6, CONFIG.places.downtown.x + 8, CONFIG.places.downtown.z + 6, 0);
   addVehicle('coupe', 0x10b981, CONFIG.places.uptown.x + 10, CONFIG.places.uptown.z, 1.5);
   addVehicle('sedan', 0xec4899, CONFIG.places.airport.x + 12, CONFIG.places.airport.z + 4, -1);
-  // Boat at the marina dock.
-  const boat = addVehicle('boat', 0xf8fafc, 530, 120, Math.PI / 2);
+  // Boat at the marina dock, just inside Builder B's water line (x > 470).
+  const boat = addVehicle('boat', 0xf8fafc, 475, 120, Math.PI / 2);
   boat.parked = true;
 
-  // Water plane (visual) over the east strip so the boat reads as on water.
-  const waterGeo = new THREE.PlaneGeometry(CONFIG.water.x1 - CONFIG.water.x0, CONFIG.water.z1 - CONFIG.water.z0);
-  const waterMat = new THREE.MeshStandardMaterial({ color: 0x0e3a5c, roughness: 0.25, metalness: 0.4 });
-  const waterMesh = new THREE.Mesh(waterGeo, waterMat);
-  waterMesh.rotation.x = -Math.PI / 2;
-  waterMesh.position.set((CONFIG.water.x0 + CONFIG.water.x1) / 2, 0.05, 0);
-  scene.add(waterMesh);
+  // Water plane (visual) over the east strip — only when Builder B's world
+  // is not loaded (B's world renders its own water and exposes `boats`).
+  if (!world.raw || !world.raw.boats || world.raw.boats.length === 0) {
+    const waterGeo = new THREE.PlaneGeometry(CONFIG.water.x1 - CONFIG.water.x0, CONFIG.water.z1 - CONFIG.water.z0);
+    const waterMat = new THREE.MeshStandardMaterial({ color: 0x0e3a5c, roughness: 0.25, metalness: 0.4 });
+    const waterMesh = new THREE.Mesh(waterGeo, waterMat);
+    waterMesh.rotation.x = -Math.PI / 2;
+    waterMesh.position.set((CONFIG.water.x0 + CONFIG.water.x1) / 2, 0.05, 0);
+    scene.add(waterMesh);
+  }
 
   // Traffic: 4 cars looping. With a road graph they follow real roads;
-  // without it they loop a rectangle around the plaza.
+  // without it they loop a rectangle on the street grid (x=±300 and z=±120
+  // are streets in Builder B's layout, so the loop stays on roads).
   const loop = [
-    { x: -200, z: -150 }, { x: 200, z: -150 }, { x: 200, z: 150 }, { x: -200, z: 150 },
+    { x: -300, z: -120 }, { x: 300, z: -120 }, { x: 300, z: 120 }, { x: -300, z: 120 },
   ];
   const trafficColors = [0x94a3b8, 0xf97316, 0x3b82f6, 0xa3e635];
   const traffic = [];

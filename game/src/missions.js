@@ -81,10 +81,10 @@ export const MISSION_DEFS = [
   },
   {
     id: 8, title: 'Boat Job', giver: 'Marina Mike',
-    brief: 'A crate needs to reach the far end of the bay. Take the boat at the East Marina and run it north.',
+    brief: 'A crate needs to reach the far end of the bay. Take the boat at the Marina Dock and run it north.',
     reward: 3000,
     stages: [
-      { type: 'enterVehicle', x: P.eastMarina.x, z: P.eastMarina.z, radius: 16, kind: 'boat', text: 'Board the boat at East Marina (E)' },
+      { type: 'enterVehicle', x: P.marinaDock.x, z: P.marinaDock.z, radius: 16, kind: 'boat', text: 'Board the boat at the Marina Dock (E)' },
       { type: 'goto', x: 540, z: -380, radius: 14, text: 'Sail to the north bay drop' },
     ],
   },
@@ -183,21 +183,37 @@ export function createMissions(scene, world, ctx) {
     ring.visible = false;
   }
 
+  // Snap a target onto open ground: Builder B's city has buildings in block
+  // interiors, so a raw place coordinate can sit inside a footprint the
+  // player can never reach. findOpenGround (B's API, scaffold fallback is
+  // identity) moves it to the nearest walkable spot.
+  function snap(x, z, maxR = 40) {
+    try {
+      const g = ctx.world && ctx.world.findOpenGround ? ctx.world.findOpenGround(x, z, maxR) : null;
+      if (g && typeof g.x === 'number') return { x: g.x, z: g.z };
+    } catch { /* keep the raw point */ }
+    return { x, z };
+  }
+
   function startStage() {
     stageState = {};
     const stage = currentStage();
     if (!stage) return;
     if (stage.type === 'kill') {
       stageState.spawned = stage.spawn.map((s) => {
-        if (s.kind === 'police') return ctx.combat.spawnPolice(s.x, s.z);
-        return ctx.combat.spawnEnemy(s.x, s.z, { kind: 'guard' });
+        const p = snap(s.x, s.z);
+        if (s.kind === 'police') return ctx.combat.spawnPolice(p.x, p.z);
+        return ctx.combat.spawnEnemy(p.x, p.z, { kind: 'guard' });
       });
       stageState.killed = 0;
     } else if (stage.type === 'enterVehicle') {
       // Make sure a vehicle of the right kind waits at the spot.
-      const near = ctx.vehicles.nearestVehicle(stage.x, stage.z, 25);
+      const spot = snap(stage.x, stage.z);
+      stageState.tx = spot.x;
+      stageState.tz = spot.z;
+      const near = ctx.vehicles.nearestVehicle(spot.x, spot.z, 25);
       if (!near || near.kind !== stage.kind) {
-        const v = ctx.vehicles.addVehicle(stage.kind, 0xf59e0b, stage.x + 4, stage.z + 4, 0, { parked: true, missionCar: true });
+        const v = ctx.vehicles.addVehicle(stage.kind, 0xf59e0b, spot.x + 4, spot.z + 4, 0, { parked: true, missionCar: true });
         stageState.missionVehicle = v;
       } else {
         stageState.missionVehicle = near;
@@ -205,8 +221,16 @@ export function createMissions(scene, world, ctx) {
     } else if (stage.type === 'race') {
       stageState.cpIndex = 0;
       stageState.timeLeft = stage.timeLimit;
+      stageState.checkpoints = stage.checkpoints.map((cp) => snap(cp.x, cp.z));
     } else if (stage.type === 'hold') {
       stageState.progress = 0;
+      const spot = snap(stage.x, stage.z);
+      stageState.tx = spot.x;
+      stageState.tz = spot.z;
+    } else if (stage.type === 'goto') {
+      const spot = snap(stage.x, stage.z);
+      stageState.tx = spot.x;
+      stageState.tz = spot.z;
     } else if (stage.type === 'evade') {
       stageState.timeLeft = stage.seconds;
     }
@@ -219,13 +243,14 @@ export function createMissions(scene, world, ctx) {
     const stage = currentStage();
     if (!stage) return null;
     if (stage.type === 'race') {
-      const cp = stage.checkpoints[stageState.cpIndex || 0];
+      const cp = (stageState.checkpoints || stage.checkpoints)[stageState.cpIndex || 0];
       return cp ? { x: cp.x, z: cp.z } : null;
     }
     if (stage.type === 'kill') {
       const alive = (stageState.spawned || []).find((e) => !e.dead);
       return alive ? { x: alive.mesh.position.x, z: alive.mesh.position.z } : { x: stage.spawn[0].x, z: stage.spawn[0].z };
     }
+    if (stageState.tx !== undefined) return { x: stageState.tx, z: stageState.tz };
     return { x: stage.x, z: stage.z };
   }
 
@@ -296,7 +321,7 @@ export function createMissions(scene, world, ctx) {
     if (!stage) return;
     const p = ctx.player.group.position;
     if (stage.type === 'goto') {
-      if (distTo(stage.x, stage.z) < stage.radius) {
+      if (distTo(stageState.tx ?? stage.x, stageState.tz ?? stage.z) < stage.radius) {
         if (stage.wantedOnArrive) ctx.combat.setWanted(stage.wantedOnArrive);
         advanceStage();
       }
@@ -306,7 +331,7 @@ export function createMissions(scene, world, ctx) {
       ctx.onObjective(`${stage.text.split(' (')[0]} (${killed}/${stage.count})`);
       if (killed >= stage.count) advanceStage();
     } else if (stage.type === 'hold') {
-      if (distTo(stage.x, stage.z) < stage.radius) {
+      if (distTo(stageState.tx ?? stage.x, stageState.tz ?? stage.z) < stage.radius) {
         stageState.progress += dt;
         ctx.onObjective(`${stage.text} — ${Math.ceil(stage.seconds - stageState.progress)}s`);
         if (stageState.progress >= stage.seconds) advanceStage();
@@ -317,18 +342,18 @@ export function createMissions(scene, world, ctx) {
       if (ctx.isDriving()) advanceStage();
     } else if (stage.type === 'race') {
       stageState.timeLeft -= dt;
-      const cp = stage.checkpoints[stageState.cpIndex];
+      const cp = (stageState.checkpoints || stage.checkpoints)[stageState.cpIndex];
       if (cp && distTo(cp.x, cp.z) < 12) {
         stageState.cpIndex += 1;
         ctx.audio.chime();
-        if (stageState.cpIndex >= stage.checkpoints.length) {
+        if (stageState.cpIndex >= (stageState.checkpoints || stage.checkpoints).length) {
           advanceStage();
           return;
         }
-        const next = stage.checkpoints[stageState.cpIndex];
+        const next = (stageState.checkpoints || stage.checkpoints)[stageState.cpIndex];
         placeBeacon(next.x, next.z);
       }
-      ctx.onObjective(`Race: checkpoint ${stageState.cpIndex + 1}/${stage.checkpoints.length} — ${Math.ceil(stageState.timeLeft)}s left`);
+      ctx.onObjective(`Race: checkpoint ${stageState.cpIndex + 1}/${(stageState.checkpoints || stage.checkpoints).length} — ${Math.ceil(stageState.timeLeft)}s left`);
       if (stageState.timeLeft <= 0) failMission('Out of time');
     } else if (stage.type === 'evade') {
       stageState.timeLeft -= dt;

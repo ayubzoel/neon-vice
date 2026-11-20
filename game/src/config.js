@@ -60,22 +60,24 @@ export const CONFIG = {
     ricosBar: { x: 150, z: 100, name: "Rico's Bar" },
     northMarket: { x: -300, z: -300, name: 'North Market' },
     westDocks: { x: -500, z: 200, name: 'West Docks' },
-    eastMarina: { x: 500, z: 150, name: 'East Marina' },
+    eastMarina: { x: 440, z: 150, name: 'East Marina' },
+    marinaDock: { x: 465, z: 150, name: 'Marina Dock' },
     southBeach: { x: 100, z: 400, name: 'South Beach' },
     uptown: { x: -400, z: -350, name: 'Uptown' },
     downtown: { x: 300, z: -300, name: 'Downtown' },
     airport: { x: -100, z: -400, name: 'Airport' },
     warehouse: { x: -450, z: -100, name: 'Warehouse' },
     impound: { x: 350, z: 250, name: 'Police Impound' },
-    yacht: { x: 520, z: 0, name: 'Yacht' },
+    yacht: { x: 440, z: 0, name: 'Yacht Dock' },
     gunShop: { x: -200, z: -200, name: 'Gun Shop' },
     clothShop: { x: 200, z: -100, name: 'Clothing' },
     bank: { x: 300, z: -280, name: 'Vice Bank' },
     safehouse: { x: -400, z: -330, name: 'Safehouse' },
   },
 
-  // East-edge water strip where the boat lives (x 480..600, z -450..450).
-  water: { x0: 480, x1: 600, z0: -450, z1: 450 },
+  // East-edge water strip where the boat lives (matches Builder B's
+  // WATER_X0 = 470: water starts at x 470, beach sand 420..470).
+  water: { x0: 470, x1: 600, z0: -450, z1: 450 },
 
   weather: {
     startHour: 21, // night by default — Vice Harbor is a night city

@@ -105,6 +105,7 @@ const missions = createMissions(scene, world, {
   vehicles,
   combat,
   audio,
+  world,
   isDriving: () => !!driving,
   getMoney: () => money,
   addMoney: (n) => { money += n; ui.setMoney(money); },
@@ -119,7 +120,7 @@ const save = createSave({
 });
 // shops ctx
 const shops = createShops(scene, {
-  player, combat, audio,
+  player, combat, audio, world,
   getMoney: () => money,
   spendMoney: (n) => { money -= n; ui.setMoney(money); },
 });
@@ -218,6 +219,9 @@ function nearestInteractable() {
   const p = player.group.position;
   const v = vehicles.nearestVehicle(p.x, p.z, 4.5);
   if (v) return { kind: 'vehicle', vehicle: v };
+  // Boats sit in the water just past the shore: allow boarding from the dock.
+  const boat = vehicles.list.find((x) => x.kind === 'boat' && Math.hypot(x.mesh.position.x - p.x, x.mesh.position.z - p.z) < 12);
+  if (boat) return { kind: 'vehicle', vehicle: boat };
   const shop = shops.nearestShop(p.x, p.z, 12);
   if (shop) return { kind: 'shop', shop };
   return null;
@@ -329,6 +333,8 @@ function resizeMapCanvas() {
 const STEP = 1 / 60;
 let acc = 0;
 let lastNow = performance.now();
+let stepBudget = 8; // max substeps per frame (mandated default); the debug
+// hook below may raise it for fast playtests — shipped play stays at 8.
 
 function step(dt) {
   gameTime += dt;
@@ -440,12 +446,12 @@ function frame(now) {
   lastNow = now;
   acc += dtReal;
   let steps = 0;
-  while (acc >= STEP && steps < 8) {
+  while (acc >= STEP && steps < stepBudget) {
     step(STEP);
     acc -= STEP;
     steps += 1;
   }
-  if (steps === 8) acc = 0; // spiral guard: drop backlog, game time lags honestly
+  if (steps === stepBudget) acc = 0; // spiral guard: drop backlog, game time lags honestly
   placeCamera();
   renderer.render(scene, camera);
   updateHud(dtReal);
@@ -481,11 +487,11 @@ function frame(now) {
         startMission: (n) => {
           const def = missions.startMission(n);
           // Teleport near the first stage so the tester can play it at once.
-          const stage = missions.currentStage();
-          if (stage && typeof stage.x === 'number') {
-            const spot = world.findOpenGround(stage.x, stage.z + 15, 20);
+          const target = missions.stageTarget();
+          if (target) {
+            const spot = world.findOpenGround(target.x, target.z + 15, 20);
             player.group.position.set(spot.x, 0, spot.z);
-            player.heading = Math.atan2(stage.x - spot.x, stage.z - spot.z);
+            player.heading = Math.atan2(target.x - spot.x, target.z - spot.z);
           }
           return def;
         },
@@ -502,6 +508,9 @@ function frame(now) {
         startSideJob: (kind) => missions.startSideJob(kind),
         setHour: (h) => weather.setHour(h),
         setRain: (on) => weather.setRain(on),
+        // Test hook only: raise the substep budget so game time runs faster
+        // than real time under SwiftShader. Shipped default is 8.
+        setStepBudget: (n) => { stepBudget = Math.max(1, Math.min(60, n | 0)); },
         state: () => ({ money, hp: player.hp, wanted: combat.wanted, mission: missions.status, missionId: missions.currentDef()?.id }),
       },
     };

@@ -40,18 +40,15 @@ export function createMap(world) {
     const [wx, wy] = toMap(CONFIG.water.x0, CONFIG.water.z0);
     ctx.fillStyle = '#0e3a5c';
     ctx.fillRect(wx, wy, (CONFIG.water.x1 - CONFIG.water.x0) * scale, (CONFIG.water.z1 - CONFIG.water.z0) * scale);
-    // Roads: from the road graph if present, else a light grid.
+    // Roads: from the road graph if present (segments {ax,az,bx,bz}),
+    // else a light grid.
     ctx.strokeStyle = '#3b4a63';
     ctx.lineWidth = 2;
-    if (world.roadGraph && world.roadGraph.roads) {
-      for (const road of world.roadGraph.roads) {
-        ctx.beginPath();
-        road.forEach(([rx, rz], i) => {
-          const [mx, my] = toMap(rx, rz);
-          if (i === 0) ctx.moveTo(mx, my);
-          else ctx.lineTo(mx, my);
-        });
-        ctx.stroke();
+    if (world.roadGraph && world.roadGraph.segments) {
+      for (const s of world.roadGraph.segments) {
+        const [x1, y1] = toMap(s.ax, s.az);
+        const [x2, y2] = toMap(s.bx, s.bz);
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
       }
     } else {
       for (let x = -500; x <= 500; x += 100) {

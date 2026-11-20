@@ -243,25 +243,35 @@ async function main() {
     }
 
     if (scenario === 'missions' || scenario === 'full') {
+      const fromN = parseInt(process.argv[3] || '1', 10);
+      const toN = parseInt(process.argv[4] || '12', 10);
       const { page, errors } = await newPage(browser);
       await startGame(page);
+      // Fast-forward hook for playtests only: 24 substeps/frame so game
+      // time runs ~1.3x real time under SwiftShader (shipped default is 8).
+      await page.evaluate(() => window.NEON_VICE.debug.setStepBudget(24));
       await page.evaluate(() => window.NEON_VICE.debug.setMoney(50000));
-      const P = { ricosBar: [150, 100], northMarket: [-300, -300], westDocks: [-500, 200], downtown: [300, -300], uptown: [-400, -350], southBeach: [100, 400], airport: [-100, -400], warehouse: [-450, -100], eastMarina: [500, 150], safehouse: [-400, -330], impound: [350, 250], bank: [300, -280], yacht: [520, 0] };
-      const missionTargets = {
-        1: [[150, 100], [-300, -300]],
-        2: [[-500, 200], [300, -300]],
-        3: [[-400, -350], [100, 400], [-100, -400]],
-        4: null, // vehicle: enter + drive
-        5: [[0, 0], [300, -300], [-300, -300], [0, 300]],
-        6: null, // combat
-        7: null, // combat
-        8: null, // boat
-        9: [[-100, -400], [-400, -330]],
-        10: null, // combat + vehicle
-        11: [[300, -280], [-500, 200]],
-        12: null, // combat + hold
-      };
-      for (let n = 1; n <= 12; n += 1) {
+      const P = { ricosBar: [150, 100], northMarket: [-300, -300], westDocks: [-500, 200], downtown: [300, -300], uptown: [-400, -350], southBeach: [100, 400], airport: [-100, -400], warehouse: [-450, -100], eastMarina: [440, 150], safehouse: [-400, -330], impound: [350, 250], bank: [300, -280], yacht: [440, 0] };
+
+      // Target-driven runner: follow the game's live stage target until the
+      // mission completes or leaves this mission id.
+      async function playGoto(n, maxMs) {
+        const t0 = Date.now();
+        while (Date.now() - t0 < maxMs) {
+          const st = await stats(page);
+          if (st.missionId !== n || st.mission === 'done') return true;
+          const tgt = await page.evaluate(() => {
+            const t = window.NEON_VICE.game.missions.stageTarget();
+            return t ? [t.x, t.z] : null;
+          });
+          if (!tgt) { await sleep(500); continue; }
+          await walkToNear(page, tgt[0], tgt[1], 45000);
+          await waitForAdvance(page, 45000);
+        }
+        return false;
+      }
+
+      for (let n = fromN; n <= toN; n += 1) {
         const before = await stats(page);
         await page.evaluate((n) => window.NEON_VICE.debug.startMission(n), n);
         await sleep(400);
@@ -269,20 +279,28 @@ async function main() {
         let note = '';
         try {
           if (n === 4 || n === 10) {
-            // enter vehicle: walk to the mission car, press E, drive to target
-            const spot = n === 4 ? P.warehouse : P.impound;
-            await walkToNear(page, spot[0] + 4, spot[1] + 4);
+            // enter vehicle: walk to the live stage target, press E, drive on
+            const tgt0 = await page.evaluate(() => {
+              const t = window.NEON_VICE.game.missions.stageTarget();
+              return t ? [t.x, t.z] : null;
+            });
+            if (tgt0) await walkToNear(page, tgt0[0], tgt0[1], 45000);
             await pressKey(page, 'KeyE');
             await sleep(500);
             const s1 = await stats(page);
             if (s1.driving) {
-              const tgt = n === 4 ? P.eastMarina : P.ricosBar;
-              ok = await driveTo(page, tgt[0], tgt[1], 150000);
-              note = ok ? 'drove to destination' : 'drive failed';
-              if (ok) { await pressKey(page, 'KeyE'); await sleep(300); }
+              const tgt = await page.evaluate(() => {
+                const t = window.NEON_VICE.game.missions.stageTarget();
+                return t ? [t.x, t.z] : null;
+              });
+              if (tgt) {
+                ok = await driveTo(page, tgt[0], tgt[1], 120000);
+                note = ok ? 'drove to destination' : 'drive failed';
+                if (ok) { await pressKey(page, 'KeyE'); await sleep(300); }
+              } else { note = 'no drive target'; }
             } else { note = 'could not enter vehicle'; }
           } else if (n === 5) {
-            // race in the plaza car, teleporting near each checkpoint
+            // race in the plaza car, teleporting near each live checkpoint
             await walkToNear(page, 12, 12);
             await pressKey(page, 'KeyE');
             await sleep(400);
@@ -290,7 +308,12 @@ async function main() {
             if (!s1.driving) { note = 'could not enter car for race'; }
             else {
               ok = true;
-              for (const cp of missionTargets[5]) {
+              for (let i = 0; i < 4; i += 1) {
+                const cp = await page.evaluate(() => {
+                  const t = window.NEON_VICE.game.missions.stageTarget();
+                  return t ? [t.x, t.z] : null;
+                });
+                if (!cp) break;
                 await dbg(page, `window.NEON_VICE.debug.teleport(${(cp[0] - 30).toFixed(1)}, ${(cp[1] - 30).toFixed(1)})`);
                 await sleep(300);
                 const r = await driveTo(page, cp[0], cp[1], 60000);
@@ -307,10 +330,9 @@ async function main() {
             await sleep(200);
             const t0 = Date.now();
             let done = false;
-            while (Date.now() - t0 < 120000) {
+            while (Date.now() - t0 < 150000) {
               const st = await stats(page);
               if (st.missionId !== n || st.mission === 'done') { done = true; break; }
-              // Kite: if HP is low, back off 40 m from the nearest enemy.
               if (st.hp < 40) {
                 await page.evaluate(() => {
                   const g = window.NEON_VICE.game;
@@ -344,7 +366,7 @@ async function main() {
                 await page.mouse.click(320, 200);
                 await sleep(250);
               } else {
-                // No enemies left — walk to the next stage target.
+                // No enemies left — follow the live stage target.
                 const tgt = await page.evaluate(() => {
                   const t = window.NEON_VICE.game.missions.stageTarget();
                   return t ? [t.x, t.z] : null;
@@ -358,32 +380,31 @@ async function main() {
             ok = done;
             note = done ? 'combat stages cleared' : 'timed out in combat';
             if (n === 12 && done) {
-              const w1 = await walkToNear(page, P.yacht[0] - 10, P.yacht[1], 30000);
-              await waitForAdvance(page, 40000);
-              const w2 = await walkToNear(page, P.ricosBar[0], P.ricosBar[1], 60000);
-              ok = w1 && w2 && await waitFor(page, () => window.NEON_VICE.stats().mission === 'done' || window.NEON_VICE.stats().debtPaid !== undefined && window.NEON_VICE.game.missions.debtPaid, 10000, 'debt paid');
-              note = `hold ${w1}, deliver ${w2}`;
+              ok = await playGoto(12, 120000);
+              note = 'hold + deliver via goto runner';
             }
           } else if (n === 8) {
-            await walkToNear(page, P.eastMarina[0] + 4, P.eastMarina[1] + 4);
+            const tgt0 = await page.evaluate(() => {
+              const t = window.NEON_VICE.game.missions.stageTarget();
+              return t ? [t.x, t.z] : null;
+            });
+            if (tgt0) await walkToNear(page, tgt0[0], tgt0[1], 45000);
             await pressKey(page, 'KeyE');
             await sleep(500);
             const s1 = await stats(page);
             if (s1.driving) {
-              ok = await driveTo(page, 540, -380, 180000);
-              note = ok ? 'sailed to north bay' : 'boat drive failed';
+              const tgt = await page.evaluate(() => {
+                const t = window.NEON_VICE.game.missions.stageTarget();
+                return t ? [t.x, t.z] : null;
+              });
+              if (tgt) {
+                ok = await driveTo(page, tgt[0], tgt[1], 150000);
+                note = ok ? 'sailed to north bay' : 'boat drive failed';
+              } else note = 'no sail target';
             } else note = 'could not board boat';
           } else {
-            for (const tgt of missionTargets[n]) {
-              const r = await walkToNear(page, tgt[0], tgt[1], 60000);
-              if (!r) { note = `target ${tgt} not reached`; break; }
-              // Hold/evade stages need game time inside the radius.
-              await waitForAdvance(page, n === 9 ? 150000 : 45000);
-            }
-            // Mission 9 evade: wait for the full evade to finish.
-            if (n === 9) { await waitFor(page, () => window.NEON_VICE.stats().mission === 'done' || window.NEON_VICE.stats().missionId !== 9, 120000, 'evade done'); }
-            ok = await waitFor(page, () => window.NEON_VICE.stats().mission === 'done' || window.NEON_VICE.stats().missionId !== n, 8000, 'mission ' + n + ' complete');
-            note = note || 'targets reached';
+            ok = await playGoto(n, 240000);
+            note = ok ? 'targets reached' : 'goto runner timed out';
           }
           if (!ok) {
             const st = await stats(page);
@@ -403,6 +424,7 @@ async function main() {
     if (scenario === 'sidejobs' || scenario === 'full') {
       const { page, errors } = await newPage(browser);
       await startGame(page);
+      await page.evaluate(() => window.NEON_VICE.debug.setStepBudget(24));
       // Taxi: start job, walk to pickup then dropoff.
       await page.evaluate(() => window.NEON_VICE.debug.startSideJob('taxi'));
       let ok = await walkToNear(page, -500, 200, 60000);
@@ -430,6 +452,7 @@ async function main() {
     if (scenario === 'combat' || scenario === 'full') {
       const { page, errors } = await newPage(browser);
       await startGame(page);
+      await page.evaluate(() => window.NEON_VICE.debug.setStepBudget(24));
       await page.evaluate(() => window.NEON_VICE.debug.setMoney(5000));
       // Holster toggle + screenshots of both states.
       await pressKey(page, 'KeyH');
@@ -465,6 +488,7 @@ async function main() {
     if (scenario === 'shops' || scenario === 'full') {
       const { page, errors } = await newPage(browser);
       await startGame(page);
+      await page.evaluate(() => window.NEON_VICE.debug.setStepBudget(24));
       await page.evaluate(() => window.NEON_VICE.debug.setMoney(5000));
       // Gun shop at (-200,-200).
       await walkToNear(page, -200, -188, 60000);
