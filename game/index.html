@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<link rel="icon" href="data:,">
+<title>Neon Vice — Open World Crime Game (scaffold v1)</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0e14; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  #hud { position: fixed; left: 14px; top: 12px; z-index: 5; color: #eef1f5; pointer-events: none; text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
+  #hud h1 { margin: 0; font-size: 22px; letter-spacing: 3px; color: #f472b6; }
+  #hud p { margin: 2px 0; font-size: 14px; color: #e2e8f0; }
+  #hudHint { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 5; color: #cbd5e1; font-size: 13px; background: rgba(11,14,20,0.6); border-radius: 8px; padding: 6px 12px; pointer-events: none; white-space: nowrap; }
+  #webglError { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #0b0e14; color: #f8fafc; z-index: 40; padding: 24px; text-align: center; font-size: 17px; line-height: 1.6; }
+  #webglError[hidden] { display: none; }
+  .panel { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(5, 8, 16, 0.72); z-index: 20; padding: 12px; box-sizing: border-box; }
+  .panel.hidden { display: none; }
+  .card { background: #141926; border: 2px solid #f472b6; border-radius: 14px; color: #eef1f5; max-width: 520px; width: 100%; padding: 22px 24px; box-sizing: border-box; box-shadow: 0 0 40px rgba(244, 114, 182, 0.35); }
+  .card h1 { margin: 0 0 4px; font-size: 42px; letter-spacing: 2px; color: #f472b6; text-shadow: 0 0 18px rgba(244, 114, 182, 0.7); }
+  .card .sub { color: #f59e0b; font-weight: 700; letter-spacing: 1px; }
+  .card p { color: #cbd5e1; line-height: 1.5; margin: 8px 0; }
+  .card .keys { font-size: 14px; color: #94a3b8; line-height: 1.7; }
+  .card .keys b { color: #e2e8f0; }
+  .btn { display: block; width: 100%; margin: 8px 0; padding: 13px 16px; font-size: 17px; font-weight: 700; color: #0b0e14; background: #f472b6; border: none; border-radius: 10px; cursor: pointer; }
+  .btn:hover { background: #f9a8d4; }
+  #touch { position: fixed; inset: 0; z-index: 10; pointer-events: none; display: none; touch-action: none; }
+  #touch.on { display: block; }
+  #stick { position: absolute; left: 18px; bottom: 24px; width: 128px; height: 128px; border-radius: 50%; background: rgba(255,255,255,0.08); border: 2px solid rgba(255,255,255,0.25); pointer-events: auto; touch-action: none; }
+  #stickKnob { position: absolute; left: 44px; top: 44px; width: 40px; height: 40px; border-radius: 50%; background: rgba(244,114,182,0.7); }
+  @media (max-width: 640px) {
+    .card h1 { font-size: 30px; }
+    .card { padding: 16px; }
+    #hudHint { display: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="game" aria-label="Neon Vice: a 3D open-world crime game. Explore Vice City on foot."></canvas>
+
+<div id="hud">
+  <h1>NEON VICE</h1>
+  <p id="hudPos">x 0 · z 0 · 0.0 m/s</p>
+  <p id="hudFps">— FPS</p>
+  <p id="hudState">Scaffold v1 — flat ground, placeholder hero</p>
+</div>
+<div id="hudHint">WASD move &middot; A/D turn &middot; Shift run &middot; touch stick on phones</div>
+
+<div id="webglError" hidden></div>
+
+<div id="startScreen" class="panel">
+  <div class="card">
+    <h1>NEON VICE</h1>
+    <p class="sub">A SMALL OPEN-WORLD CRIME STORY &mdash; VICE CITY</p>
+    <p>Vic Marino came to Vice City with empty pockets and big plans. This is the scaffold: flat ground, one placeholder hero, and a third-person camera. The city, missions and cars arrive next.</p>
+    <button class="btn" id="btnNew">New Game</button>
+    <p class="keys"><b>WASD / Arrows</b> move &middot; <b>A / D</b> turn &middot; <b>Shift</b> run.<br>On phones: left stick to move, push it far to run.</p>
+  </div>
+</div>
+
+<div id="touch">
+  <div id="stick"><div id="stickKnob"></div></div>
+</div>
+
+<script src="./vendor/three.min.js"></script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
