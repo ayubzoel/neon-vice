@@ -104,6 +104,43 @@ export function createInput() {
     el.addEventListener('pointerleave', up);
   }
 
+  // Touch enter/exit hint: main.js writes the contextual hint into
+  // #hudHint ("Press E to enter" / "Press E to exit"), but that bar is
+  // hidden on touch devices because it names keyboard keys — so mirror it
+  // into a touch pill (#touchHint, index.html) with tap wording, and make
+  // the CAR button itself read EXIT while driving and pulse when a
+  // vehicle is near enough to enter. Watches #hudHint with a
+  // MutationObserver, so it follows main.js (and the language) for free.
+  function setupTouchHint() {
+    const hint = document.getElementById('hudHint');
+    const pill = document.getElementById('touchHint');
+    const carBtn = document.getElementById('btnCar');
+    if (!hint || !pill) return;
+    const translate = (text) => text
+      .replace('Press E to ', 'Tap CAR to ')
+      .replace('Tekan E untuk ', 'Ketuk CAR untuk ')
+      .replace('WASD move · Shift run · E interact · M map · B phone · H holster',
+        'Left stick to move · CAR to enter a car')
+      .replace('Swimming — steer toward the shore', 'Swimming — stick toward the shore');
+    const sync = () => {
+      const playing = document.getElementById('startScreen')?.classList.contains('hidden');
+      if (!playing) { pill.classList.remove('show'); return; }
+      const text = translate(hint.textContent || '');
+      if (pill.textContent !== text) pill.textContent = text;
+      pill.classList.toggle('show', text.length > 0);
+      pill.classList.toggle('action', /CAR/.test(text));
+      if (carBtn) {
+        const exiting = /exit|keluar/i.test(text);
+        const entering = /enter|masuk|open/i.test(text);
+        const label = exiting ? 'EXIT' : 'CAR';
+        if (carBtn.textContent !== label) carBtn.textContent = label;
+        carBtn.classList.toggle('ready', entering);
+      }
+    };
+    new MutationObserver(sync).observe(hint, { childList: true, characterData: true, subtree: true });
+    sync();
+  }
+
   return {
     attach() {
       window.addEventListener('keydown', onKeyDown);
@@ -128,6 +165,7 @@ export function createInput() {
       if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
         document.getElementById('touch')?.classList.add('on');
         document.body.classList.add('touch-device'); // hides the WASD hint
+        setupTouchHint();
       }
     },
 

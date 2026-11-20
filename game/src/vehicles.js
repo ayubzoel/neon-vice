@@ -182,11 +182,26 @@ export function createVehicles(scene, world) {
   function driveVehicle(v, input, dt) {
     const isBoat = v.kind === 'boat';
     const accel = isBoat ? v.accel : v.accel;
-    if (input.forward > 0) v.speed += accel * dt;
-    else if (input.forward < 0) v.speed -= (v.speed > 0.5 ? accel * 1.4 : accel * 0.6) * dt;
+    // Touch driving: the stick never reaches forward/turn — input.read()
+    // only fills those from the keyboard — so translate it here. While
+    // driving the camera sits behind the vehicle (main.js: camYaw =
+    // driving.heading), so screen-up IS vehicle-forward: stick up = gas,
+    // stick down = brake/reverse, stick left/right = steer. The stick is
+    // analog, so its deflection scales throttle/steer (the keyboard stays
+    // binary at magnitude 1, unchanged); the keyboard wins whenever it is
+    // held. Same mapping for the boat: throttle + rudder on the water.
+    let forward = input.forward;
+    let turn = input.turn;
+    const stick = input.stick;
+    if (stick && stick.active && Math.hypot(stick.x, stick.y) > 0.12) {
+      if (forward === 0) forward = Math.max(-1, Math.min(1, stick.y));
+      if (turn === 0) turn = Math.max(-1, Math.min(1, -stick.x));
+    }
+    if (forward > 0) v.speed += accel * forward * dt;
+    else if (forward < 0) v.speed -= (v.speed > 0.5 ? accel * 1.4 : accel * 0.6) * Math.abs(forward) * dt;
     else v.speed -= Math.sign(v.speed) * Math.min(Math.abs(v.speed), 8 * dt);
     v.speed = Math.max(-v.maxSpeed * 0.35, Math.min(v.maxSpeed, v.speed));
-    const steer = input.turn * (v.speed >= 0 ? 1 : -1) * Math.min(1, Math.abs(v.speed) / 6 + 0.25);
+    const steer = turn * (v.speed >= 0 ? 1 : -1) * Math.min(1, Math.abs(v.speed) / 6 + 0.25);
     // Same sign as on foot (player.js): A / turn +1 raises the heading,
     // which turns the car to screen-left. (Was inverted: cars steered away
     // from the target and could never complete a driven mission.)

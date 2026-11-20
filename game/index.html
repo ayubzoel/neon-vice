@@ -22,6 +22,12 @@
   #hudMsg { position: fixed; left: 50%; top: 70px; transform: translateX(-50%); z-index: 6; background: rgba(11,14,20,0.85); color: #fde68a; border: 1px solid #f59e0b; border-radius: 10px; padding: 10px 16px; font-size: 15px; font-weight: 600; opacity: 0; transition: opacity 0.25s; pointer-events: none; max-width: 90vw; text-align: center; }
   #hudMsg.show { opacity: 1; }
   #hudHint { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 5; color: #cbd5e1; font-size: 13px; background: rgba(11,14,20,0.6); border-radius: 8px; padding: 6px 12px; pointer-events: none; white-space: nowrap; }
+  /* Touch enter/exit pill: mirrors #hudHint (which is hidden on touch
+     devices) with tap wording — see setupTouchHint() in src/input.js.
+     Sits in the free centre strip above the stick/buttons. */
+  #touchHint { position: fixed; left: 50%; bottom: 168px; transform: translateX(-50%); z-index: 6; color: #e2e8f0; font-size: 14px; font-weight: 600; background: rgba(11,14,20,0.85); border: 1px solid rgba(255,255,255,0.25); border-radius: 10px; padding: 8px 14px; pointer-events: none; white-space: nowrap; max-width: 92vw; overflow: hidden; text-overflow: ellipsis; display: none; }
+  body.touch-device #touchHint.show { display: block; }
+  #touchHint.action { border-color: #f472b6; color: #fbcfe8; box-shadow: 0 0 16px rgba(244,114,182,0.45); }
   #webglError { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #0b0e14; color: #f8fafc; z-index: 40; padding: 24px; text-align: center; font-size: 17px; line-height: 1.6; }
   #webglError[hidden] { display: none; }
   .panel { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(5, 8, 16, 0.72); z-index: 20; padding: 12px; box-sizing: border-box; }
@@ -51,6 +57,8 @@
   #btnRun { right: 96px; bottom: 28px; }
   #btnFire { right: 20px; bottom: 100px; background: rgba(239,68,68,0.5); }
   #btnCar { right: 20px; bottom: 180px; }
+  #btnCar.ready { border-color: #f472b6; background: rgba(244,114,182,0.45); animation: carPulse 1.2s ease-in-out infinite; }
+  @keyframes carPulse { 0%, 100% { box-shadow: 0 0 0 rgba(244,114,182,0); } 50% { box-shadow: 0 0 18px rgba(244,114,182,0.8); } }
   #btnJump { right: 96px; bottom: 108px; }
   #btnHolster { right: 172px; bottom: 28px; }
   #mapOverlay { z-index: 25; background: rgba(5,8,16,0.9); flex-direction: column; }
@@ -85,6 +93,7 @@
 <canvas id="minimap" class="hidden" width="150" height="150"></canvas>
 <div id="hudMsg"></div>
 <div id="hudHint" class="hidden">WASD move &middot; Shift run &middot; E interact &middot; M map &middot; B phone &middot; H holster</div>
+<div id="touchHint"></div>
 
 <div id="webglError" hidden></div>
 
