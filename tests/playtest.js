@@ -224,8 +224,37 @@ async function walkToNear(page, x, z, timeout = 60000, radius = 9) {
   const dx = x - h.x, dz = z - h.z;
   const d = Math.hypot(dx, dz);
   if (d > 45) {
-    const nx = x - (dx / d) * 35;
-    const nz = z - (dz / d) * 35;
+    // Teleport to 35 m out — but approach along the final ROAD leg, not the
+    // straight line: the straight line put the player east of the safehouse,
+    // ramming the building at (-403,-330) forever (mission 9). Walk the road
+    // path backwards from the target until 35 m of route is covered.
+    let nx = x - (dx / d) * 35;
+    let nz = z - (dz / d) * 35;
+    try {
+      const path = await page.evaluate(([tx, tz]) => {
+        const g = window.NEON_VICE.game;
+        const rg = g.world && g.world.roadGraph;
+        if (!rg || !rg.findPath) return null;
+        const p = g.player.group.position;
+        try { return rg.findPath({ x: p.x, z: p.z }, { x: tx, z: tz }); } catch { return null; }
+      }, [x, z]);
+      if (path && path.length > 1) {
+        let remaining = 35;
+        for (let i = path.length - 1; i > 0 && remaining > 0; i -= 1) {
+          const a = path[i - 1], b = path[i];
+          const seg = Math.hypot(b.x - a.x, b.z - a.z);
+          if (seg >= remaining) {
+            const f = remaining / seg;
+            nx = b.x - (b.x - a.x) * f;
+            nz = b.z - (b.z - a.z) * f;
+            remaining = 0;
+          } else {
+            remaining -= seg;
+            nx = a.x; nz = a.z;
+          }
+        }
+      }
+    } catch { /* keep the straight-line point */ }
     await dbg(page, `window.NEON_VICE.debug.teleport(${nx.toFixed(1)}, ${nz.toFixed(1)})`);
     await sleep(300);
   }
