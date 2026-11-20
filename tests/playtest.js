@@ -868,7 +868,9 @@ async function main() {
       await page.evaluate(() => window.NEON_VICE.debug.setRain(true));
       await sleep(2000);
       const raining = await page.evaluate(() => window.NEON_VICE.game.weather.raining);
-      log('weather day + rain toggle', dayBg === '12:00' && raining, `clock=${dayBg} raining=${raining}`);
+      // Clock ticks while the screenshot is taken (12:00 -> 12:01), so
+      // accept any 12:0x reading.
+      log('weather day + rain toggle', dayBg.startsWith('12:0') && raining, `clock=${dayBg} raining=${raining}`);
       await page.evaluate(() => window.NEON_VICE.debug.setHour(21));
       await sleep(1000);
       const nightBg = await page.evaluate(() => window.NEON_VICE.game.weather.isNight());
