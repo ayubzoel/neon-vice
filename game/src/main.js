@@ -111,6 +111,7 @@ let state = 'title'; // 'title' | 'playing'
 let paused = false; // an overlay (map/shop/phone/settings) is open
 let overlay = null; // 'map' | 'shop' | 'phone' | 'settings' | null — which overlay paused the game
 let driving = null; // vehicle Vera is in, or null
+let lastRamCrimeAt = 0; // wall-clock ms of the last ramming crime (3 s cooldown)
 let mouseDown = false;
 let gameTime = 0; // seconds of game time (fixed steps only)
 let wallStart = 0; // performance.now() of the first frame (unclamped wall clock)
@@ -339,6 +340,16 @@ function doInteract() {
     driving.parked = false;
     player.group.visible = false;
     audio.unlock();
+    // Car theft (Builder B v3, Neon Bay rule): +1 star when a cop is close
+    // enough to see it, otherwise a 40% chance somebody saw. Mission cars
+    // are yours already — taking one is not a crime.
+    if (!driving.missionCar) {
+      const seen = combat.policeNear(CONFIG.wanted.sightRange || 70) || Math.random() < 0.4;
+      if (seen) {
+        combat.commitCrime(1);
+        ui.toast('Someone saw you steal that car!');
+      }
+    }
   } else if (near.kind === 'shop') {
     openShop(near.shop);
   }
@@ -679,6 +690,34 @@ function step(dt) {
   vehicles.update(dt);
   ambient.update(dt);
 
+  // Driving crimes (Builder B v3, Neon Bay rule: crimes the police see
+  // raise wanted): hitting a pedestrian or ramming another car while
+  // driving at speed is +1 star. A hit ped is knocked down and respawns
+  // on a far sidewalk (ambient.knockDown); a rammed car just costs heat.
+  if (driving && Math.abs(driving.speed) > 3) {
+    const cx = driving.mesh.position.x;
+    const cz = driving.mesh.position.z;
+    for (const p of ambient.pedestrians) {
+      if (p.lastHit && Date.now() - p.lastHit < 3000) continue;
+      if (Math.hypot(p.x - cx, p.z - cz) < 2.2) {
+        combat.commitCrime(1);
+        ambient.knockDown(p);
+        ui.toast('You hit a pedestrian!');
+      }
+    }
+    if (Date.now() - lastRamCrimeAt > 3000) {
+      for (const o of vehicles.list) {
+        if (o === driving || o.kind === 'boat') continue;
+        if (Math.hypot(o.mesh.position.x - cx, o.mesh.position.z - cz) < 3.5) {
+          combat.commitCrime(1);
+          lastRamCrimeAt = Date.now();
+          ui.toast('You rammed another car!');
+          break;
+        }
+      }
+    }
+  }
+
   // Combat. No shooting while swimming (BUG-1 swim rules).
   if ((frameInput.fire || mouseDown) && !driving && !player.swimming) combat.shoot();
   combat.update(dt, gameTime, !!driving);
@@ -824,6 +863,9 @@ function frame(now) {
         realElapsed: wallStart ? (performance.now() - wallStart) / 1000 : 0,
         ratio: wallStart ? gameTime / ((performance.now() - wallStart) / 1000) : 0,
         money, wanted: combat.wanted, hp: player.hp,
+        police: combat.police.filter((p) => !p.dead).length,
+        policeCars: combat.policeCars.filter((c) => !c.dead).length,
+        policeCanSee: combat.policeCanSee,
         speed: driving ? Math.abs(driving.speed) : player.speed,
         mission: missions.status, missionId: missions.currentDef()?.id ?? null,
         driving: !!driving, hour: weather.hour, raining: weather.raining,
@@ -854,6 +896,7 @@ function frame(now) {
         giveWeapon: (kind) => combat.buyWeapon(kind),
         setWanted: (n) => combat.setWanted(n),
         clearPolice: () => combat.clearPolice(),
+        police: () => combat.policeInfo(),
         setHp: (n) => { player.hp = Math.max(0, Math.min(player.maxHp, n)); },
         startSideJob: (kind) => missions.startSideJob(kind),
         setHour: (h) => weather.setHour(h),

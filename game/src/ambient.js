@@ -586,9 +586,34 @@ export function createAmbient(scene, world, vehicles, opts = {}) {
   updatePedestrians(0);
   renderPedestrians();
 
+  // Hit-and-run: a pedestrian struck by the player's car is knocked down
+  // and respawns on a random far sidewalk (Builder B v3 — the ped is NOT
+  // deleted, so the instanced counts stay at 40). The caller (main.js)
+  // raises wanted for the hit.
+  function knockDown(ped) {
+    let segIdx = ped.seg;
+    for (let tries = 0; tries < 12; tries += 1) {
+      const cand = Math.floor(rng() * segments.length);
+      const s = segments[cand];
+      const mx = (s.ax + s.bx) / 2;
+      const mz = (s.az + s.bz) / 2;
+      if (Math.hypot(mx - ped.x, mz - ped.z) > 150) { segIdx = cand; break; }
+    }
+    ped.seg = segIdx;
+    ped.dir = rng() < 0.5 ? -1 : 1;
+    ped.side = rightSide(segments[segIdx], ped.dir);
+    ped.t = 0.25 + rng() * 0.5;
+    ped.farTurn = null;
+    ped.exit = null;
+    placePed(ped);
+    planExit(ped);
+    ped.lastHit = Date.now();
+  }
+
   return {
     pedestrians,
     trafficCars,
+    knockDown,
     update(dt) {
       updatePedestrians(dt);
       renderPedestrians();

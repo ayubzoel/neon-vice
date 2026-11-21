@@ -88,5 +88,24 @@ export const CONFIG = {
     rainChance: 0.25, // chance a light shower starts each game hour
   },
 
-  wanted: { max: 3, decaySeconds: 25 },
+  // Wanted (Builder B v3): 5 stars like Neon Bay. Bay's tiers, scaled to
+  // Vice Harbor's 1200x900 map (no heli/tank — the map is small and smooth
+  // is the priority, so high stars add more patrol cars instead):
+  //   Bay  1★ 2 cars | 2★ 2 cars+2 bikes | 3★ 3+3 | 4★ 3+3+1 heli | 5★ 4+4+2 heli+1 tank
+  //   Vice 1★ 2 foot | 2★ 2 foot+1 car  | 3★ 3+2 | 4★ 3+3        | 5★ 4+4
+  // Decay: 25 s quiet per star (Bay: 45 s), and only while no police unit
+  // can see the player (sightRange 70 m; Bay: 150 m on a 9600 m map).
+  wanted: {
+    max: 5,
+    decaySeconds: 25,
+    sightRange: 70,
+    tiers: [
+      { foot: 0, cars: 0 },
+      { foot: 2, cars: 0 },
+      { foot: 2, cars: 1 },
+      { foot: 3, cars: 2 },
+      { foot: 3, cars: 3 },
+      { foot: 4, cars: 4 },
+    ],
+  },
 };
