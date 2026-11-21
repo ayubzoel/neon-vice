@@ -14,6 +14,11 @@
 // intersection a ped keeps walking straight or turns onto the adjoining
 // sidewalk, switching segments exactly where the two sidewalk centrelines
 // meet (the corner), so the path is continuous and never cuts the road.
+// v4 (Builder C): 60 pedestrians, 28 traffic cars total (24 extra + 4
+// stock). Same instancing as v3 — still 4 draw calls for ALL pedestrians,
+// 1 merged-mesh draw call per extra car — so the crowd grows without a
+// proportional draw-call cost. See the FPS note in the v4 report before
+// raising these numbers further.
 // Traffic cars reuse vehicles.js (addVehicle + the existing updateTraffic
 // loop): they follow the road graph on the road centreline, stop at red
 // lights, and never drive into the car ahead.
@@ -25,8 +30,8 @@
 
 import { mulberry32, randRange, pick } from './data.js';
 
-const PED_COUNT = 40;
-const EXTRA_TRAFFIC = 18; // +4 existing traffic cars = 22 total
+const PED_COUNT = 60;
+const EXTRA_TRAFFIC = 24; // +4 existing traffic cars = 28 total
 const NEAR_SPAWN_COUNT = 8; // guaranteed visible around the spawn plaza
 const NEAR_SPAWN_RADIUS = 130; // m from (0,0): streets framing the plaza
 
@@ -261,7 +266,7 @@ export function createAmbient(scene, world, vehicles, opts = {}) {
     }
   }
 
-  // ---- Instanced pedestrian meshes (4 draw calls for all 40) ------------
+  // ---- Instanced pedestrian meshes (4 draw calls for all 60) ------------
   const dummy = new THREE.Object3D();
   const tmpColor = new THREE.Color();
   const bodyGeo = new THREE.BoxGeometry(0.55, 0.85, 0.32);
@@ -588,7 +593,7 @@ export function createAmbient(scene, world, vehicles, opts = {}) {
 
   // Hit-and-run: a pedestrian struck by the player's car is knocked down
   // and respawns on a random far sidewalk (Builder B v3 — the ped is NOT
-  // deleted, so the instanced counts stay at 40). The caller (main.js)
+  // deleted, so the instanced counts stay at 60). The caller (main.js)
   // raises wanted for the hit.
   function knockDown(ped) {
     let segIdx = ped.seg;

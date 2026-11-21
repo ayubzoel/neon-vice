@@ -93,6 +93,7 @@ const input = createInput();
 input.attach();
 const audio = createAudio();
 const weather = createWeather(scene);
+weather.registerWorld(world.raw); // v4: phase-driven windows, lamps, moon/stars
 const vehicles = createVehicles(scene, world);
 const ambient = createAmbient(scene, world, vehicles, { isDriven: (v) => v === driving });
 const combat = createCombat(scene, world, player, audio);
@@ -868,7 +869,7 @@ function frame(now) {
         policeCanSee: combat.policeCanSee,
         speed: driving ? Math.abs(driving.speed) : player.speed,
         mission: missions.status, missionId: missions.currentDef()?.id ?? null,
-        driving: !!driving, hour: weather.hour, raining: weather.raining,
+        driving: !!driving, hour: weather.hour, phase: weather.phaseName(), raining: weather.raining,
         quality: settings.quality, softwareGL, swimming: player.swimming,
         ambient: ambient.stats(),
         drawCalls: renderer.info.render.calls,

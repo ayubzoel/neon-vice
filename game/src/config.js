@@ -83,7 +83,9 @@ export const CONFIG = {
   water: { x0: 470, x1: 600, z0: -450, z1: 450 },
 
   weather: {
-    startHour: 21, // night by default — Vice Harbor is a night city
+    startHour: 7, // morning by default (v4) — the first mission starts in
+    // daylight so the four phases (Pagi/Siang/Sore/Malam) are visible
+    // within the first minutes of play; was 21 (night) in v1-v3.
     dayLengthSec: 600, // one full game day = 10 min of game time
     rainChance: 0.25, // chance a light shower starts each game hour
   },

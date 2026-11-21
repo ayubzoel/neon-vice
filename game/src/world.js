@@ -87,6 +87,12 @@ export function createWorld(scene) {
   const D = CONFIG.world.depth;
 
   // ---- Night sky, fog, lights -------------------------------------------
+  // Builder C v4: windowMats / lampHeadMat / skyStars are collected here so
+  // weather.js can drive window glow, lamp glow and moon/stars per time
+  // phase. Additive only — no existing world behaviour changes.
+  const windowMats = []; // [{mat, base}] building materials with lit windows
+  let lampHeadMat = null;
+  let skyStars = null;
   scene.background = new THREE.Color(0x070b1a);
   scene.fog = new THREE.Fog(0x0a0f22, 200, 1500);
   const hemi = new THREE.HemisphereLight(0x46587e, 0x1a1e26, 1.3);
@@ -130,6 +136,7 @@ export function createWorld(scene) {
       transparent: true, opacity: 0.85,
     }));
     stars.frustumCulled = false;
+    skyStars = stars; // Builder C v4: weather fades stars out by day.
     scene.add(stars);
   }
 
@@ -340,6 +347,7 @@ export function createWorld(scene) {
       map: texture, emissiveMap: texture, emissive: 0xffca7a,
       emissiveIntensity, roughness: 0.85, metalness: 0.05,
     });
+    windowMats.push({ mat, base: emissiveIntensity }); // Builder C v4
     const mesh = new THREE.InstancedMesh(geo, mat, list.length);
     list.forEach((b, i) => {
       dummy.position.set(b.x, b.h / 2, b.z);
@@ -549,6 +557,7 @@ export function createWorld(scene) {
     const poles = new THREE.InstancedMesh(poleGeo, poleMat, lampSpots.length);
     const headGeo = new THREE.SphereGeometry(0.3, 8, 6);
     const headMat = new THREE.MeshBasicMaterial({ color: 0xffd9a0 });
+    lampHeadMat = headMat; // Builder C v4: weather dims lamp heads by day.
     const heads = new THREE.InstancedMesh(headGeo, headMat, lampSpots.length);
     lampSpots.forEach((p, i) => {
       dummy.position.set(p.x, 3, p.z);
@@ -928,6 +937,11 @@ export function createWorld(scene) {
     roadClearM: ROAD_CLEAR_M,
     trafficLightPositions: tlPositions,
     loadMs,
+    // Builder C v4: phase-driven materials for weather.js (window glow,
+    // lamp glow, moon/glow/stars fade). Read-only exposure, no behaviour.
+    windowMats,
+    lampHeadMat,
+    skyMeshes: { moon, glow, stars: skyStars },
     // No per-frame work: the city is static except the interval-driven
     // traffic-light cycle and boat bob. Kept for Builder C's loop if wanted.
     update() {},
