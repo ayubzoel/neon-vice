@@ -129,6 +129,7 @@ export function createPlayer(scene) {
     armed: false,
     walkPhase: 0,
     limbs: { armL, armR, legL, legR, rig },
+    groundY: 0, // smoothed road-surface height (flyover ramps/deck, v4)
 
     setJacket(color) {
       this.jacketColor = color;
@@ -220,12 +221,37 @@ export function createPlayer(scene) {
         const maxTurn = CONFIG.player.turnSpeed * 3 * dt;
         this.heading += Math.max(-maxTurn, Math.min(maxTurn, diff));
       } else {
-        // Keyboard: heading-based, scaffold behaviour.
-        this.heading += input.turn * CONFIG.player.turnSpeed * dt;
-        const base = input.run ? CONFIG.player.runSpeed : CONFIG.player.walkSpeed;
-        speed = Math.abs(input.forward) > 0.01 ? base * Math.sign(input.forward) : 0;
-        moveX = Math.sin(this.heading);
-        moveZ = Math.cos(this.heading);
+        // Keyboard (Builder B v4 rev 7): CAMERA-RELATIVE, like the stick.
+        // W/S move along the camera forward/back, A/D strafe left/right
+        // while moving; heading turns toward the movement direction, so
+        // after the camera is orbited 180°, W walks away from the camera
+        // instead of toward it. A/D alone (no W/S) still turn in place,
+        // so aiming a shot with A/D is unchanged.
+        if (input.forward !== 0) {
+          let mx = cam.fx * input.forward + cam.rx * -input.turn;
+          let mz = cam.fz * input.forward + cam.rz * -input.turn;
+          const len = Math.hypot(mx, mz) || 1;
+          mx /= len;
+          mz /= len;
+          moveX = mx;
+          moveZ = mz;
+          speed = input.run ? CONFIG.player.runSpeed : CONFIG.player.walkSpeed;
+          const target = Math.atan2(moveX, moveZ);
+          let diff = target - this.heading;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          const maxTurn = CONFIG.player.turnSpeed * 3 * dt;
+          this.heading += Math.max(-maxTurn, Math.min(maxTurn, diff));
+        } else if (input.turn !== 0) {
+          this.heading += input.turn * CONFIG.player.turnSpeed * dt;
+          speed = 0;
+          moveX = Math.sin(this.heading);
+          moveZ = Math.cos(this.heading);
+        } else {
+          speed = 0;
+          moveX = Math.sin(this.heading);
+          moveZ = Math.cos(this.heading);
+        }
       }
 
       this.speed = speed;
@@ -279,7 +305,14 @@ export function createPlayer(scene) {
           this.grounded = true;
         }
       }
-      this.group.position.y = this.swimming ? -0.55 : this.y; // waist-deep while swimming
+      // Flyover (Builder B v4 rev 6): the ground under Vera follows the
+      // ramp/deck profile, smoothed so stepping off a deck edge drops
+      // instead of snapping. Jump height (this.y) rides on top of it.
+      const gyTarget = world.groundHeightAt
+        ? world.groundHeightAt(this.group.position.x, this.group.position.z, this.groundY)
+        : 0;
+      this.groundY += (gyTarget - this.groundY) * Math.min(1, 10 * dt);
+      this.group.position.y = this.swimming ? -0.55 : this.groundY + this.y; // waist-deep while swimming
       this.group.rotation.y = this.heading;
       this.animate(dt);
     },
@@ -292,6 +325,7 @@ export function createPlayer(scene) {
       this.hp = this.maxHp;
       this.swimming = false;
       this.y = 0;
+      this.groundY = 0;
       this.vy = 0;
       this.grounded = true;
       this.walkPhase = 0;

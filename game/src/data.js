@@ -44,6 +44,24 @@ export const RESERVED = [
   { id: 'vital-6', kind: 'vital-police', name: 'Polsek Beach', area: 'beach', x: 0, z: 300, w: 24, d: 18, h: 12 },
 ];
 
+// ---- Flyovers (Builder B v4) -------------------------------------------
+// Two elevated decks over the z=0 arterial, both carrying the NS arterial
+// road over the EW artery so through traffic can skip the red light:
+//   A: (60, 0) — the central artery past the spawn plaza (plaza loop
+//      traffic + the mission/GPS spine to South Beach / Impound).
+//   B: (300, 0) — the downtown artery on the mission/GPS spine to the
+//      Bank / Downtown / Yacht Dock.
+// Geometry (per flyover, axis NS): deck 10 m wide (x ±5), flat 6 m high
+// over z ±10 (the whole intersection box), ramps 50 m each side rising
+// 0 -> 6 m (12% grade). The ground road under the deck stays at y=0 for
+// EW through-traffic and for turns at the intersection box; the ramps
+// ARE the NS road surface, so NS traffic (player + AI) drives up and over.
+export const FLYOVERS = [
+  { x: 60, z: 0, axis: 'NS' },
+  { x: 300, z: 0, axis: 'NS' },
+];
+export const FLYOVER = { deckH: 6, rampLen: 50, deckHalf: 10, width: 10 };
+
 // Park cell (oaks + benches, no buildings) and plaza cell (spawn area).
 export const PARK_CELL = { col: 2, row: 4 }; // x[-300,-180], z[120,240]
 export const PLAZA_CELL = { col: 4, row: 3 }; // x[-60,60], z[0,120]

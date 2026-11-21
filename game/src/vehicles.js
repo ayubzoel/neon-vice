@@ -83,6 +83,10 @@ export function createVehicles(scene, world) {
     }
     const mesh = kind === 'bike' ? makeBike(model) : kind === 'boat' ? makeBoat(model) : makeCarBody(model, kind);
     mesh.position.set(x, kind === 'boat' ? 0.15 : 0, z);
+    // Parked on a flyover ramp? Sit on the ramp surface, not inside it.
+    if (kind !== 'boat' && world.groundHeightAt) {
+      try { mesh.position.y = world.groundHeightAt(x, z, 0); } catch { /* keep 0 */ }
+    }
     mesh.rotation.y = heading;
     scene.add(mesh);
     const v = {
@@ -182,22 +186,28 @@ export function createVehicles(scene, world) {
   function driveVehicle(v, input, dt) {
     const isBoat = v.kind === 'boat';
     const accel = isBoat ? v.accel : v.accel;
-    // Touch driving: the stick never reaches forward/turn — input.read()
-    // only fills those from the keyboard — so translate it here. While
-    // driving the camera sits behind the vehicle (main.js: camYaw =
-    // driving.heading), so screen-up IS vehicle-forward: stick up = gas,
-    // stick down = brake/reverse, stick left/right = steer. The stick is
-    // analog, so its deflection scales throttle/steer (the keyboard stays
-    // binary at magnitude 1, unchanged); the keyboard wins whenever it is
-    // held. Same mapping for the boat: throttle + rudder on the water.
+    // Builder B v4 rev 3 — touch driving: the stick STEERS ONLY (left /
+    // right). It never gives gas any more: throttle comes from the GAS
+    // pedal (touch) or W (keyboard), braking from the REM pedal or S.
+    // Keyboard is unchanged: W gas, S brake/reverse, A/D steer. Same
+    // mapping for the bike and the boat.
     let forward = input.forward;
     let turn = input.turn;
     const stick = input.stick;
     if (stick && stick.active && Math.hypot(stick.x, stick.y) > 0.12) {
-      if (forward === 0) forward = Math.max(-1, Math.min(1, stick.y));
+      // Stick Y is deliberately ignored while driving: pushing the stick
+      // up must not move the car. Only the X axis steers.
       if (turn === 0) turn = Math.max(-1, Math.min(1, -stick.x));
     }
-    if (forward > 0) v.speed += accel * forward * dt;
+    if (input.gas) forward = Math.max(forward, 1);
+    // REM pedal: brake to a full stop and HOLD at 0 — it never reverses
+    // (there is no reverse pedal on touch; S on the keyboard still
+    // brakes-then-reverses, as before).
+    const braking = !!input.brake;
+    if (braking) {
+      v.speed -= Math.sign(v.speed) * Math.min(Math.abs(v.speed), v.accel * 2.2 * dt);
+      if (Math.abs(v.speed) < 0.05) v.speed = 0;
+    } else if (forward > 0) v.speed += accel * forward * dt;
     else if (forward < 0) v.speed -= (v.speed > 0.5 ? accel * 1.4 : accel * 0.6) * Math.abs(forward) * dt;
     else v.speed -= Math.sign(v.speed) * Math.min(Math.abs(v.speed), 8 * dt);
     v.speed = Math.max(-v.maxSpeed * 0.35, Math.min(v.maxSpeed, v.speed));
@@ -230,7 +240,16 @@ export function createVehicles(scene, world) {
       v.mesh.position.z = clamped.z;
     }
     v.mesh.rotation.y = v.heading;
-    v.mesh.position.y = isBoat ? 0.15 + Math.sin(Date.now() * 0.001 + v.id) * 0.05 : 0;
+    // Builder B v4 rev 6: ride the flyover profile (ramps/deck) — lerped
+    // so driving off a deck edge drops instead of teleporting down.
+    if (isBoat) {
+      v.mesh.position.y = 0.15 + Math.sin(Date.now() * 0.001 + v.id) * 0.05;
+    } else if (world.groundHeightAt) {
+      const gy = world.groundHeightAt(v.mesh.position.x, v.mesh.position.z, v.mesh.position.y);
+      v.mesh.position.y += (gy - v.mesh.position.y) * Math.min(1, 12 * dt);
+    } else {
+      v.mesh.position.y = 0;
+    }
   }
 
   // Fresh graph route from the car's current position. The car drives to

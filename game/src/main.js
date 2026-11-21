@@ -67,8 +67,9 @@ function normalizeWorld(raw) {
       ? (x, z) => raw.isInWater(x, z)
       : (x, z) => x > CONFIG.water.x0 - 2,
     roadGraph: raw.roadGraph || null,
+    flyovers: raw.flyovers || [],
     destinations: raw.destinations || null,
-    groundHeightAt: typeof raw.groundHeightAt === 'function' ? (x, z) => raw.groundHeightAt(x, z) : () => 0,
+    groundHeightAt: typeof raw.groundHeightAt === 'function' ? (x, z, y = 0) => raw.groundHeightAt(x, z, y) : () => 0,
     findOpenGround: typeof raw.findOpenGround === 'function'
       // B's findOpenGround returns null when nothing is open within maxR;
       // callers expect a point, so fall back to the raw coordinates.
@@ -114,6 +115,57 @@ let overlay = null; // 'map' | 'shop' | 'phone' | 'settings' | null — which ov
 let driving = null; // vehicle Vera is in, or null
 let lastRamCrimeAt = 0; // wall-clock ms of the last ramming crime (3 s cooldown)
 let mouseDown = false;
+let aimHeldMouse = false; // Builder A v4: right mouse held
+let aimHeldTouch = false; // Builder A v4: AIM touch button held
+let aimShown = false; // crosshair currently visible
+const _aimVec = new THREE.Vector3(); // lock-marker projection scratch
+
+// Builder A v4: recompute the aim state (held + on foot + playing) and
+// push it into combat; the crosshair follows the same flag.
+function applyAim() {
+  const want = (aimHeldMouse || aimHeldTouch) && state === 'playing' && !paused && !driving;
+  combat.setAiming(want);
+  if (want !== aimShown) {
+    aimShown = want;
+    document.getElementById('crosshair')?.classList.toggle('show', want);
+    document.getElementById('btnAim')?.classList.toggle('aiming', want);
+    // Drop the bracket synchronously on release: at SwiftShader frame
+    // rates the per-frame overlay update can lag ~0.5 s behind the input,
+    // and a stale red bracket on a released lock reads as a bug.
+    if (!want) document.getElementById('lockMarker')?.classList.remove('show');
+  }
+}
+
+// Builder A v4: position the red lock bracket over the locked target (or
+// hide it). Runs every frame after the camera is placed, so the marker
+// tracks a moving target instead of lagging on the 0.12 s HUD tick.
+function updateAimOverlay() {
+  const marker = document.getElementById('lockMarker');
+  const label = document.getElementById('lockLabel');
+  if (!marker) return;
+  const info = combat.aimInfo();
+  if (!info.locked) { marker.classList.remove('show'); return; }
+  _aimVec.set(info.locked.x, info.locked.y, info.locked.z).project(camera);
+  if (_aimVec.z > 1) { marker.classList.remove('show'); return; }
+  const x = (_aimVec.x * 0.5 + 0.5) * window.innerWidth;
+  const y = (-_aimVec.y * 0.5 + 0.5) * window.innerHeight;
+  marker.style.left = `${x}px`;
+  marker.style.top = `${y}px`;
+  if (label) label.textContent = `${info.locked.label} · ${info.locked.dist}m · HP ${Math.max(0, Math.ceil(info.locked.hp))}`;
+  marker.classList.add('show');
+}
+
+// Builder A v4: touch wording for the banner hint (mirrors the translate()
+// in input.js, which feeds the now-hidden #touchHint pill).
+function translateHint(text) {
+  if (!document.body.classList.contains('touch-device')) return text;
+  return text
+    .replace('Press E to ', 'Tap CAR to ')
+    .replace('Tekan E untuk ', 'Ketuk CAR untuk ')
+    .replace('WASD move · Shift run · E interact · M map · B backpack · H holster · Hold right-click to aim',
+      'Left stick to move · CAR to enter · Hold AIM to lock a target')
+    .replace('Swimming — steer toward the shore', 'Swimming — stick toward the shore');
+}
 let gameTime = 0; // seconds of game time (fixed steps only)
 let wallStart = 0; // performance.now() of the first frame (unclamped wall clock)
 let frames = 0;
@@ -160,27 +212,77 @@ const shops = createShops(scene, {
   spendMoney: (n) => { money -= n; ui.setMoney(money); },
 });
 
-// ---- Camera ----
-// Camera yaw: follows the player's heading, EXCEPT while the touch stick
-// is steering — then it stays frozen. The camera sits behind the player's
-// heading, so if it swung with every stick turn, "screen-right" would
-// rotate under the player and the stick would spin them in circles
-// instead of moving them right (joystick test, 2026-11-20).
+// ---- Camera (Builder B v4 rev 7: free orbit) ----
+// The camera orbits Vera 360°: a drag on empty screen (touch swipe or
+// mouse drag, input.js) moves a TARGET yaw/pitch, and the live yaw/pitch
+// damp toward it (lerp, ~8/s) so the motion is smooth, never a jump.
+// Pitch is the elevation angle above the look point, clamped to
+// [0.12, 1.0] rad — the camera can look down from high above but never
+// flips over or goes underground. When the player is idle the camera
+// stays where the player left it; once they move (and 2.5 s after the
+// last drag) the target yaw eases back behind their heading, so the
+// camera still follows without ever snapping. While the touch stick is
+// steering on foot the camera stays frozen — otherwise "screen-right"
+// would rotate under the player (joystick test, 2026-11-20). Movement
+// stays camera-relative (player.js / driveVehicle read the camera basis),
+// so stick-up / W after a 180° orbit still walk away from the camera.
+// Clipping: if the computed camera spot is inside a building footprint,
+// pull the camera closer (down to 3.5 m) until it is clear.
 let camYaw = CONFIG.spawn.heading || 0;
-function placeCamera() {
+let camYawTarget = camYaw;
+let camPitch = 0.33; // default elevation: (4.5 - 1.6) / 9 m
+let camPitchTarget = 0.33;
+let camHoldUntil = 0; // performance.now() ms: follow paused until then
+const CAM_PITCH_MIN = 0.12;
+const CAM_PITCH_MAX = 1.0;
+function angleDelta(from, to) {
+  let d = to - from;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+function placeCamera(dtReal = 0.016) {
+  const dt = Math.max(0.001, Math.min(0.1, dtReal));
+  // Consume the orbit drag (empty-screen swipe / mouse drag).
+  const drag = input.consumeCamDrag ? input.consumeCamDrag() : { dx: 0, dy: 0 };
+  if (drag.dx !== 0 || drag.dy !== 0) {
+    camYawTarget += drag.dx * 0.005; // ~1250 px per full turn
+    camPitchTarget = Math.max(CAM_PITCH_MIN, Math.min(CAM_PITCH_MAX, camPitchTarget - drag.dy * 0.004));
+    camHoldUntil = performance.now() + 2500;
+  } else if (performance.now() > camHoldUntil) {
+    // Ease the target back behind the heading — only while moving, and
+    // never while the stick is steering on foot (frozen camera, see above).
+    const stick = !driving && input.read().stick;
+    const moving = driving ? Math.abs(driving.speed) > 0.5 : Math.abs(player.speed) > 0.5;
+    if ((!stick || !stick.active) && moving) {
+      const base = driving ? driving.heading : player.heading;
+      camYawTarget += angleDelta(camYawTarget, base) * Math.min(1, 1.6 * dt);
+    }
+  }
+  const k = 1 - Math.exp(-8 * dt); // damping: smooth, no jumps
+  camYaw += angleDelta(camYaw, camYawTarget) * k;
+  camPitch += (camPitchTarget - camPitch) * k;
   const target = driving ? driving.mesh.position : player.group.position;
-  const stick = !driving && input.read().stick;
-  if (!stick || !stick.active) camYaw = driving ? driving.heading : player.heading;
-  const heading = driving ? driving.heading : camYaw;
-  const backX = -Math.sin(heading) * CONFIG.camera.distance;
-  const backZ = -Math.cos(heading) * CONFIG.camera.distance;
-  const dist = driving ? CONFIG.camera.distance + 3 : CONFIG.camera.distance;
-  camera.position.set(
-    target.x + backX * (dist / CONFIG.camera.distance),
-    CONFIG.camera.height + (driving ? 1.5 : 0),
-    target.z + backZ * (dist / CONFIG.camera.distance),
-  );
-  camera.lookAt(target.x, CONFIG.camera.lookHeight, target.z);
+  const targetY = target.y || 0;
+  const fullDist = driving ? CONFIG.camera.distance + 3 : CONFIG.camera.distance;
+  let dist = fullDist;
+  // Camera spot for a given distance, then pull in if it is inside a
+  // building footprint (2D colliders; conservative at high pitch).
+  const spot = (d) => ({
+    x: target.x - Math.sin(camYaw) * Math.cos(camPitch) * d,
+    y: targetY + CONFIG.camera.lookHeight + Math.sin(camPitch) * d,
+    z: target.z - Math.cos(camYaw) * Math.cos(camPitch) * d,
+  });
+  if (world.collides) {
+    while (dist > 3.5) {
+      const s = spot(dist);
+      if (!world.collides(s.x, s.z, 0.5)) break;
+      dist -= 0.5;
+    }
+  }
+  const pos = spot(dist);
+  camera.position.set(pos.x, Math.max(1.2, pos.y), pos.z);
+  camera.lookAt(target.x, targetY + CONFIG.camera.lookHeight, target.z);
 }
 
 function cameraBasis() {
@@ -269,9 +371,9 @@ function startGame(fromSave) {
   // On touch devices the CSS hides them — the #touch buttons serve instead.
   document.getElementById('quickBtns')?.classList.remove('hidden');
   if (!isTouch) document.getElementById('hudHint')?.classList.remove('hidden');
-  hudState.textContent = isTouch
-    ? 'Playing — left stick to move · buttons to act'
-    : 'Playing — WASD move · E interact · M map · B backpack · Esc settings';
+  hudState.textContent = 'Playing';
+  // Builder A v4: the top banner carries the controls hint from here on.
+  ui.showBanner();
   audio.unlock();
   ui.setMoney(money);
   ui.toast(fromSave ? 'Save loaded. Welcome back, Vera.' : 'Vera owes Rico $50,000. Mission 1 is waiting — open your phone (B).', 5000);
@@ -613,7 +715,11 @@ function buildControlsList() {
   el.dataset.built = '1';
   el.innerHTML = getBindings()
     .map((b) => `<div class="ctlRow"><span>${b.label}</span><b>${b.keys}</b></div>`)
-    .join('');
+    .join('')
+    // Builder A v4: aim is wired in main.js, not in input.js (Builder B),
+    // so its row is appended here instead of in getBindings().
+    + '<div class="ctlRow"><span>Aim at NPC / police (hold)</span><b>Right mouse / AIM</b></div>'
+    + '<div class="ctlRow"><span>Show / hide help banner</span><b>T</b></div>';
 }
 
 function resizeMapCanvas() {
@@ -691,6 +797,21 @@ function step(dt) {
   vehicles.update(dt);
   ambient.update(dt);
 
+  // Builder B v4 rev 6: traffic cars ride the flyover profile too (their
+  // steering loops in vehicles.js / ambient.js are 2D, so the height is
+  // applied here, after they move). A car whose route crosses a flyover
+  // NS drives up and over it; EW traffic passes underneath at y=0.
+  // (ambient.js itself is Builder C's — untouched; this is the only place
+  // traffic height is set.) Police cars (combat.js, Builder A) keep y=0
+  // and may clip a ramp visually while chasing — known limitation.
+  if (world.groundHeightAt) {
+    for (const v of vehicles.list) {
+      if (!v.traffic || v.kind === 'boat') continue;
+      const gy = world.groundHeightAt(v.mesh.position.x, v.mesh.position.z, v.mesh.position.y);
+      v.mesh.position.y += (gy - v.mesh.position.y) * Math.min(1, 10 * dt);
+    }
+  }
+
   // Driving crimes (Builder B v3, Neon Bay rule: crimes the police see
   // raise wanted): hitting a pedestrian or ramming another car while
   // driving at speed is +1 star. A hit ped is knocked down and respawns
@@ -698,7 +819,11 @@ function step(dt) {
   if (driving && Math.abs(driving.speed) > 3) {
     const cx = driving.mesh.position.x;
     const cz = driving.mesh.position.z;
+    // Height guard (v4 flyover): a car on the deck (y≈6) is not hitting
+    // the pedestrians / cars on the ground road underneath it.
+    const onDeck = Math.abs(driving.mesh.position.y) > 2.5;
     for (const p of ambient.pedestrians) {
+      if (onDeck) break;
       if (p.lastHit && Date.now() - p.lastHit < 3000) continue;
       if (Math.hypot(p.x - cx, p.z - cz) < 2.2) {
         combat.commitCrime(1);
@@ -706,9 +831,10 @@ function step(dt) {
         ui.toast('You hit a pedestrian!');
       }
     }
-    if (Date.now() - lastRamCrimeAt > 3000) {
+    if (!onDeck && Date.now() - lastRamCrimeAt > 3000) {
       for (const o of vehicles.list) {
         if (o === driving || o.kind === 'boat') continue;
+        if (Math.abs(driving.mesh.position.y - o.mesh.position.y) > 2.5) continue;
         if (Math.hypot(o.mesh.position.x - cx, o.mesh.position.z - cz) < 3.5) {
           combat.commitCrime(1);
           lastRamCrimeAt = Date.now();
@@ -719,8 +845,13 @@ function step(dt) {
     }
   }
 
-  // Combat. No shooting while swimming (BUG-1 swim rules).
-  if ((frameInput.fire || mouseDown) && !driving && !player.swimming) combat.shoot();
+  // Combat. No shooting while swimming (BUG-1 swim rules). Mouse
+  // hold-to-fire is suppressed while a camera drag is in progress (rev 7),
+  // so orbiting with the mouse never fires the weapon.
+  // Builder A v4: aim state is re-evaluated every step (pause / driving /
+  // title changes must drop the lock even without a pointer event).
+  applyAim();
+  if ((frameInput.fire || (mouseDown && !input.isCamDragging())) && !driving && !player.swimming) combat.shoot();
   combat.update(dt, gameTime, !!driving);
 
   // Missions + weather.
@@ -740,6 +871,8 @@ function updateHud(dt) {
   hudTimer += dt;
   if (hudTimer < 0.12) return;
   hudTimer = 0;
+  // Builder B v4 rev 3: show the GAS / REM pedals only while driving.
+  document.body.classList.toggle('driving', !!driving);
   const p = player.group.position;
   document.getElementById('hudPos').textContent = `x ${p.x.toFixed(0)} · z ${p.z.toFixed(0)} · ${player.speed.toFixed(1)} m/s`;
   document.getElementById('hudFps').textContent = `${fpsShown} FPS · ${weather.clockText()}`;
@@ -769,18 +902,24 @@ function updateHud(dt) {
     ui.setGps(0, null);
     gpsArrow.visible = false;
   }
-  // Interaction hint.
+  // Interaction hint (Builder A v4): the text still goes into the hidden
+  // #hudHint (input.js observes it to drive the touch CAR button), but
+  // what the player SEES is the top banner — nothing at the bottom or
+  // centre of the screen anymore.
   const hint = document.getElementById('hudHint');
+  let hintText;
   if (player.swimming) {
-    hint.textContent = 'Swimming — steer toward the shore';
+    hintText = 'Swimming — steer toward the shore';
   } else if (!driving) {
     const near = nearestInteractable();
-    if (near?.kind === 'vehicle') hint.textContent = ui.t('enterCar');
-    else if (near?.kind === 'shop') hint.textContent = `${near.shop.name} — ${ui.t('enterCar').replace('enter', 'open')}`;
-    else hint.textContent = 'WASD move · Shift run · E interact · M map · B backpack · H holster';
+    if (near?.kind === 'vehicle') hintText = ui.t('enterCar');
+    else if (near?.kind === 'shop') hintText = `${near.shop.name} — ${ui.t('enterCar').replace('enter', 'open')}`;
+    else hintText = 'WASD move · Shift run · E interact · M map · B backpack · H holster · Hold right-click to aim';
   } else {
-    hint.textContent = ui.t('exitCar');
+    hintText = ui.t('exitCar');
   }
+  hint.textContent = hintText;
+  ui.setBannerHint(translateHint(hintText));
   // Minimap (throttled: redrawn every ~0.36 s, not every HUD tick).
   minimapTimer += dt;
   if (minimapTimer >= 0.36) {
@@ -821,7 +960,8 @@ function frame(now) {
     steps += 1;
   }
   if (steps === stepBudget) acc = 0; // spiral guard: drop backlog, game time lags honestly
-  placeCamera();
+  placeCamera(dtReal);
+  updateAimOverlay();
   renderer.render(scene, camera);
   updateHud(dtReal);
 
@@ -873,6 +1013,9 @@ function frame(now) {
         quality: settings.quality, softwareGL, swimming: player.swimming,
         ambient: ambient.stats(),
         drawCalls: renderer.info.render.calls,
+        camYaw: +camYaw.toFixed(3), camPitch: +camPitch.toFixed(3),
+        speedSigned: driving ? +driving.speed.toFixed(2) : +player.speed.toFixed(2),
+        flyovers: world.flyovers,
       }),
       game: { player, vehicles, ambient, combat, missions, shops, weather, save, map: mapSys, ui, audio, input, world },
       debug: {
@@ -898,6 +1041,16 @@ function frame(now) {
         setWanted: (n) => combat.setWanted(n),
         clearPolice: () => combat.clearPolice(),
         police: () => combat.policeInfo(),
+        // Test hooks (Builder A v4): aim-lock verification.
+        // spawnThug(dist): a thug straight ahead of Vera at `dist` metres.
+        spawnThug: (dist = 15) => {
+          const p = player.group.position;
+          return combat.spawnEnemy(p.x + Math.sin(player.heading) * dist, p.z + Math.cos(player.heading) * dist);
+        },
+        // setAiming(b): drive the aim hold programmatically (same path as
+        // the right mouse button / AIM touch button, via applyAim).
+        setAiming: (b) => { aimHeldMouse = !!b; applyAim(); return combat.aimInfo(); },
+        aimInfo: () => combat.aimInfo(),
         setHp: (n) => { player.hp = Math.max(0, Math.min(player.maxHp, n)); },
         startSideJob: (kind) => missions.startSideJob(kind),
         setHour: (h) => weather.setHour(h),
@@ -970,6 +1123,34 @@ function frame(now) {
         // Test hook only: raise the substep budget so game time runs faster
         // than real time under SwiftShader. Shipped default is 8.
         setStepBudget: (n) => { stepBudget = Math.max(1, Math.min(60, n | 0)); },
+        // Test hooks (Builder B v4): free camera orbit + flyovers.
+        // getCameraOrbit: live + target yaw/pitch (rad) and follow-hold ms.
+        // setCameraOrbit(yaw, pitch): jump the orbit (target + live) and
+        // hold the follow for 60 s so a test can measure movement
+        // relative to the orbited camera without the follow swinging back.
+        getCameraOrbit: () => ({
+          yaw: +camYaw.toFixed(3), pitch: +camPitch.toFixed(3),
+          yawTarget: +camYawTarget.toFixed(3), pitchTarget: +camPitchTarget.toFixed(3),
+          holdMs: Math.max(0, camHoldUntil - performance.now()),
+        }),
+        setCameraOrbit: (yaw, pitch) => {
+          camYawTarget = yaw;
+          camYaw = yaw;
+          if (typeof pitch === 'number') {
+            camPitchTarget = Math.max(CAM_PITCH_MIN, Math.min(CAM_PITCH_MAX, pitch));
+            camPitch = camPitchTarget;
+          }
+          camHoldUntil = performance.now() + 60000;
+          return true;
+        },
+        flyoverHeightAt: (x, z, y = 0) => world.groundHeightAt(x, z, y),
+        // Peek at the accumulated (not yet consumed) orbit-drag deltas.
+        camDragPeek: () => (input.peekCamDrag ? input.peekCamDrag() : { dx: 0, dy: 0 }),
+        checkFlyover: () => ({
+          flyovers: world.flyovers,
+          treesOnFlyover: (world.raw && world.raw.trees ? world.raw.trees : [])
+            .filter((t) => world.flyovers.some((f) => Math.abs(t.x - f.x) < 7 && Math.abs(t.z - f.z) < 62)).length,
+        }),
         state: () => ({ money, hp: player.hp, wanted: combat.wanted, mission: missions.status, missionId: missions.currentDef()?.id }),
       },
     };
@@ -986,6 +1167,37 @@ window.addEventListener('resize', () => {
 
 canvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse' && e.button === 0) mouseDown = true;
+});
+// Builder A v4: hold right mouse to aim (button 2). The context menu is
+// suppressed on the canvas so the hold never pops a menu mid-fight.
+canvas.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'mouse' && e.button === 2) { aimHeldMouse = true; applyAim(); }
+});
+window.addEventListener('pointerup', (e) => {
+  if (e.pointerType === 'mouse' && e.button === 2) { aimHeldMouse = false; applyAim(); }
+});
+window.addEventListener('pointercancel', (e) => {
+  if (e.pointerType === 'mouse' && e.button === 2) { aimHeldMouse = false; applyAim(); }
+});
+window.addEventListener('blur', () => { aimHeldMouse = false; applyAim(); });
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+// Builder A v4: touch AIM button — hold to aim, release to drop the lock.
+// Bound here (not in input.js, which is Builder B's file) so the stick
+// keeps working while AIM is held: separate pointer, separate button.
+const btnAim = document.getElementById('btnAim');
+if (btnAim) {
+  const aimDown = (e) => { e.preventDefault(); aimHeldTouch = true; applyAim(); };
+  const aimUp = (e) => { e.preventDefault(); aimHeldTouch = false; applyAim(); };
+  btnAim.addEventListener('pointerdown', aimDown);
+  btnAim.addEventListener('pointerup', aimUp);
+  btnAim.addEventListener('pointercancel', aimUp);
+  btnAim.addEventListener('pointerleave', aimUp);
+}
+// Builder A v4: banner dismiss (X) / re-open (?) / T toggles it.
+document.getElementById('bannerClose').addEventListener('click', () => ui.dismissBanner());
+document.getElementById('bannerShow').addEventListener('click', () => ui.showBanner());
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyT' && state === 'playing') ui.toggleBanner();
 });
 window.addEventListener('pointerup', (e) => {
   if (e.pointerType === 'mouse' && e.button === 0) mouseDown = false;

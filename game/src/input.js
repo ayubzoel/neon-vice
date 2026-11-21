@@ -54,12 +54,14 @@ function keyLabel(code) {
   return code;
 }
 const ACTION_LABELS = {
-  forward: 'Move forward', back: 'Move back', left: 'Turn left', right: 'Turn right',
+  forward: 'Move forward / Gas while driving', back: 'Move back / Brake & reverse while driving', left: 'Turn left', right: 'Turn right',
   run: 'Run', interact: 'Enter car / open shop / exit', exitVehicle: 'Exit vehicle',
   holster: 'Holster / draw weapon',
   map: 'Open map', backpack: 'Open backpack / phone', phone: 'Open backpack / phone',
   mute: 'Mute / unmute', reload: 'Reload', jump: 'Jump',
   weapon1: 'Select pistol', weapon2: 'Select SMG', pause: 'Pause / settings',
+  gas: 'Gas — touch pedal while driving', brake: 'Brake — touch pedal while driving (stops, no reverse)',
+  camOrbit: 'Orbit camera — drag empty screen / mouse drag (360°, smooth)',
 };
 export function getBindings() {
   const out = [];
@@ -74,6 +76,12 @@ export function getBindings() {
     if (row) row.keys += ` / ${keyLabel(code)}`;
     else out.push({ action, label: ACTION_LABELS[action] || action, keys: keyLabel(code) });
   }
+  // Touch-only driving pedals + camera orbit (no keyboard binding).
+  out.push(
+    { action: 'gas', label: ACTION_LABELS.gas, keys: 'GAS' },
+    { action: 'brake', label: ACTION_LABELS.brake, keys: 'REM' },
+    { action: 'camOrbit', label: ACTION_LABELS.camOrbit, keys: 'Drag' },
+  );
   return out;
 }
 
@@ -81,7 +89,17 @@ export function createInput() {
   const keys = new Set();
   const pressed = new Set(); // edge-triggered actions, consumed each frame
   const stick = { active: false, x: 0, y: 0 }; // x: -1..1 (right +), y: -1..1 (up +)
-  const touchBtn = { run: false, fire: false, car: false, jump: false };
+  const touchBtn = { run: false, fire: false, car: false, jump: false, gas: false, brake: false };
+  // Camera-orbit drag (Builder B v4, rev 7): pointer drags on the empty
+  // canvas only — the stick and every button are separate elements above
+  // the canvas, so a drag that starts on them never reaches here. Deltas
+  // accumulate in pixels and are consumed once per rendered frame by
+  // main.js (consumeCamDrag); mouse drags use the same path.
+  const camDrag = { dx: 0, dy: 0 };
+  let dragPointerId = null;
+  let dragLastX = 0;
+  let dragLastY = 0;
+  let dragMoved = 0; // px travelled in the current drag (shoot suppression)
   let stickEl = null;
   let knobEl = null;
 
@@ -204,6 +222,37 @@ export function createInput() {
       bindTouchButton('btnCar', 'interact', false);
       bindTouchButton('btnJump', 'jump', false);
       bindTouchButton('btnHolster', 'holster', false);
+      // Builder B v4 rev 3: touch driving pedals (hold buttons, shown
+      // only while driving — see body.driving in index.html).
+      bindTouchButton('btnGas', 'gas', true);
+      bindTouchButton('btnBrake', 'brake', true);
+      // Builder B v4 rev 7: camera-orbit drag on the game canvas.
+      const canvas = document.getElementById('game');
+      if (canvas) {
+        canvas.addEventListener('pointerdown', (event) => {
+          if (event.pointerType === 'mouse' && event.button !== 0) return;
+          if (dragPointerId !== null) return;
+          dragPointerId = event.pointerId;
+          dragLastX = event.clientX;
+          dragLastY = event.clientY;
+          dragMoved = 0;
+        });
+        canvas.addEventListener('pointermove', (event) => {
+          if (event.pointerId !== dragPointerId) return;
+          const dx = event.clientX - dragLastX;
+          const dy = event.clientY - dragLastY;
+          dragLastX = event.clientX;
+          dragLastY = event.clientY;
+          dragMoved += Math.abs(dx) + Math.abs(dy);
+          camDrag.dx += dx;
+          camDrag.dy += dy;
+        });
+        const dragEnd = (event) => {
+          if (event.pointerId === dragPointerId) dragPointerId = null;
+        };
+        canvas.addEventListener('pointerup', dragEnd);
+        canvas.addEventListener('pointercancel', dragEnd);
+      }
       // Builder UI: MAP opens the full map, PACK opens Backpack/Phone,
       // SET opens Settings (pause). Edge-triggered like the other tap buttons.
       bindTouchButton('btnMap', 'map', false);
@@ -239,6 +288,25 @@ export function createInput() {
       touchBtn[name] = value;
     },
 
+    // Camera-orbit drag, consumed once per rendered frame by main.js.
+    consumeCamDrag() {
+      const out = { dx: camDrag.dx, dy: camDrag.dy };
+      camDrag.dx = 0;
+      camDrag.dy = 0;
+      return out;
+    },
+    // Peek at the accumulated (not yet consumed) drag deltas — test hook.
+    peekCamDrag() {
+      return { dx: camDrag.dx, dy: camDrag.dy };
+    },
+    // True while the current canvas drag has moved past the tap threshold:
+    // main.js suppresses hold-to-fire shooting during such a drag, so
+    // orbiting the camera with the mouse never fires the weapon. A plain
+    // hold (no movement) still shoots.
+    isCamDragging() {
+      return dragPointerId !== null && dragMoved > 8;
+    },
+
     consumePressed() {
       const out = new Set(pressed);
       pressed.clear();
@@ -261,6 +329,8 @@ export function createInput() {
         turn: Math.max(-1, Math.min(1, turn)),
         run,
         fire,
+        gas: !!touchBtn.gas,
+        brake: !!touchBtn.brake,
         stick: { active: stick.active, x: stick.x, y: stick.y },
       };
     },

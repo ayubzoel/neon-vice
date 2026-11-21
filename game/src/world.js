@@ -19,6 +19,7 @@ import { buildRoadGraph, trafficLightState } from './roadgraph.js';
 import {
   XS, ZS, V_WIDTHS, H_WIDTHS, WATER_X0, SAND_X0,
   zoneOf, RESERVED, PARK_CELL, PLAZA_CELL, NEON_COLORS,
+  FLYOVERS, FLYOVER,
   mulberry32, randRange, pick,
 } from './data.js';
 
@@ -266,6 +267,122 @@ export function createWorld(scene) {
   );
   zebraMesh.frustumCulled = false;
   scene.add(zebraMesh);
+
+  // ---- Flyovers (Builder B v4): two decks over the z=0 arterial ---------
+  // Deck + ramps are solid slabs ON the NS road (see data.js FLYOVERS for
+  // the layout note). The ground road under the deck stays driveable at
+  // y=0 — only the deck footprint is elevated. Sign boards ("FLYOVER ↑")
+  // stand before each ramp so the driver can choose the deck in time.
+  function makeFlyoverSignTexture() {
+    const c = document.createElement('canvas');
+    c.width = 512;
+    c.height = 128;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#0b3b8f';
+    ctx.fillRect(0, 0, 512, 128);
+    ctx.strokeStyle = '#facc15';
+    ctx.lineWidth = 8;
+    ctx.strokeRect(6, 6, 500, 116);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 64px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('FLYOVER ↑', 256, 66);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+  }
+  const flyoverSignTex = makeFlyoverSignTexture();
+  {
+    const H = FLYOVER.deckH;
+    const RAMP = FLYOVER.rampLen;
+    const W2 = FLYOVER.width / 2;
+    const slopeLen = Math.hypot(RAMP, H);
+    const slopeAng = Math.atan2(H, RAMP);
+    const slabMat = new THREE.MeshStandardMaterial({ color: 0x2e333b, roughness: 0.9, metalness: 0 });
+    const edgeMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.6, metalness: 0.2 });
+    const pillarMat = new THREE.MeshStandardMaterial({ color: 0x4b5563, roughness: 0.9 });
+    const postMat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.6, metalness: 0.4 });
+    for (const f of FLYOVERS) {
+      // Flat deck over the intersection box (z ±10), top at y = H.
+      const deck = new THREE.Mesh(new THREE.BoxGeometry(FLYOVER.width, 0.6, FLYOVER.deckHalf * 2), slabMat);
+      deck.position.set(f.x, H - 0.3, f.z);
+      deck.frustumCulled = false;
+      scene.add(deck);
+      // Ramps: inclined slabs, top surface 0 at |z| = 60, H at |z| = 10.
+      for (const side of [-1, 1]) {
+        const ramp = new THREE.Mesh(new THREE.BoxGeometry(FLYOVER.width, 0.6, slopeLen), slabMat);
+        ramp.position.set(f.x, H / 2 - 0.3, f.z + side * (FLYOVER.deckHalf + RAMP / 2));
+        ramp.rotation.x = side > 0 ? slopeAng : -slopeAng;
+        ramp.frustumCulled = false;
+        scene.add(ramp);
+        // Side barriers on deck + ramps (visual; the deck edge is a drop).
+        for (const bx of [-W2 + 0.15, W2 - 0.15]) {
+          const deckBar = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.9, FLYOVER.deckHalf * 2), edgeMat);
+          deckBar.position.set(f.x + bx, H + 0.45, f.z);
+          deckBar.frustumCulled = false;
+          scene.add(deckBar);
+          const rampBar = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.9, slopeLen), edgeMat);
+          rampBar.position.set(f.x + bx, H / 2 + 0.45, f.z + side * (FLYOVER.deckHalf + RAMP / 2));
+          rampBar.rotation.x = side > 0 ? slopeAng : -slopeAng;
+          rampBar.frustumCulled = false;
+          scene.add(rampBar);
+        }
+      }
+      // Support pillars under the deck ends, on the sidewalk edge
+      // (|z| = 9, clear of the 12 m road) so ground traffic passes under.
+      for (const [px, pz] of [[-3.5, -9], [3.5, -9], [-3.5, 9], [3.5, 9]]) {
+        const pillar = new THREE.Mesh(new THREE.BoxGeometry(1.2, H, 1.2), pillarMat);
+        pillar.position.set(f.x + px, H / 2, f.z + pz);
+        pillar.frustumCulled = false;
+        scene.add(pillar);
+      }
+      // Sign boards before each ramp approach (|z| = 63), facing the
+      // oncoming driver, on two posts.
+      for (const side of [-1, 1]) {
+        const sz = f.z + side * 63;
+        for (const px of [-2.2, 2.2]) {
+          const post = new THREE.Mesh(new THREE.BoxGeometry(0.25, 3.6, 0.25), postMat);
+          post.position.set(f.x + px, 1.8, sz);
+          post.frustumCulled = false;
+          scene.add(post);
+        }
+        const sign = new THREE.Mesh(
+          new THREE.PlaneGeometry(6, 1.5),
+          new THREE.MeshBasicMaterial({ map: flyoverSignTex, side: THREE.DoubleSide }),
+        );
+        sign.position.set(f.x, 4.3, sz);
+        sign.rotation.y = side > 0 ? 0 : Math.PI; // face the approaching driver
+        sign.frustumCulled = false;
+        scene.add(sign);
+      }
+    }
+  }
+
+  // Road-surface height (Builder B v4): 0 on the ground, the ramp/deck
+  // profile inside a flyover corridor. currentY is the caller's present
+  // height — it disambiguates the deck box (|z| <= 10), where BOTH levels
+  // exist: already up there (> 3 m) stays up, on the ground stays down.
+  // Ramp zones return the slope height unconditionally: the ramp IS the
+  // road surface there, so anything on it climbs/descends with it.
+  function flyoverHeightAt(x, z, currentY = 0) {
+    const H = FLYOVER.deckH;
+    const RAMP = FLYOVER.rampLen;
+    const W2 = FLYOVER.width / 2;
+    for (const f of FLYOVERS) {
+      if (Math.abs(x - f.x) > W2) continue;
+      const dz = z - f.z;
+      const adz = Math.abs(dz);
+      if (adz <= FLYOVER.deckHalf) return currentY > 3 ? H : 0;
+      if (dz < -FLYOVER.deckHalf && dz >= -(FLYOVER.deckHalf + RAMP)) {
+        return H * (dz + FLYOVER.deckHalf + RAMP) / RAMP;
+      }
+      if (dz > FLYOVER.deckHalf && dz <= FLYOVER.deckHalf + RAMP) {
+        return H * (FLYOVER.deckHalf + RAMP - dz) / RAMP;
+      }
+    }
+    return 0;
+  }
 
   // ---- Buildings (instanced, pre-built once) ----------------------------
   const colliders = []; // {minX,maxX,minZ,maxZ}
@@ -596,7 +713,12 @@ export function createWorld(scene) {
     const near = roadGraph.nearestOnRoad(x, z);
     if (!near) return false;
     const seg = roadGraph.segments[near.segment];
-    return near.dist > seg.width / 2 + ROAD_CLEAR_M;
+    if (near.dist <= seg.width / 2 + ROAD_CLEAR_M) return false;
+    // Builder B v4: never plant on a flyover ramp/deck corridor either.
+    for (const f of FLYOVERS) {
+      if (Math.abs(x - f.x) < FLYOVER.width / 2 + 2 && Math.abs(z - f.z) < FLYOVER.deckHalf + FLYOVER.rampLen + 2) return false;
+    }
+    return true;
   }
   const oakTrunks = [];
   const oakCrowns = [];
@@ -905,6 +1027,7 @@ export function createWorld(scene) {
     worship: worshipList.length,
     vital: vitalHList.length + vitalPList.length,
     roads: roadGraph.segments.length,
+    flyovers: FLYOVERS.length,
   };
 
   const loadMs = performance.now() - t0;
@@ -921,8 +1044,9 @@ export function createWorld(scene) {
     },
     spawn,
     roadGraph,
-    groundHeightAt() {
-      return 0;
+    flyovers: FLYOVERS.map((f) => ({ ...f, deckH: FLYOVER.deckH, rampLen: FLYOVER.rampLen, width: FLYOVER.width })),
+    groundHeightAt(x, z, currentY = 0) {
+      return flyoverHeightAt(x, z, currentY);
     },
     findOpenGround,
     nearestSidewalk,
@@ -951,6 +1075,7 @@ export function createWorld(scene) {
     version: 'world-b1',
     counts,
     roadGraph,
+    flyovers: api.flyovers,
     destinations,
     spawn,
     boats,

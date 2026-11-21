@@ -19,15 +19,29 @@
   #hud.hidden, #minimap.hidden, #hudHint.hidden { display: none; }
   body.touch-device #hudHint { display: none !important; }
   #minimap { position: fixed; right: 14px; top: 12px; z-index: 5; width: 150px; height: 150px; border: 2px solid rgba(255,255,255,0.25); border-radius: 8px; background: rgba(11,16,38,0.8); }
-  #hudMsg { position: fixed; left: 50%; top: 70px; transform: translateX(-50%); z-index: 6; background: rgba(11,14,20,0.85); color: #fde68a; border: 1px solid #f59e0b; border-radius: 10px; padding: 10px 16px; font-size: 15px; font-weight: 600; opacity: 0; transition: opacity 0.25s; pointer-events: none; max-width: 90vw; text-align: center; }
-  #hudMsg.show { opacity: 1; }
-  #hudHint { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 5; color: #cbd5e1; font-size: 13px; background: rgba(11,14,20,0.6); border-radius: 8px; padding: 6px 12px; pointer-events: none; white-space: nowrap; }
-  /* Touch enter/exit pill: mirrors #hudHint (which is hidden on touch
-     devices) with tap wording — see setupTouchHint() in src/input.js.
-     Sits in the free centre strip above the stick/buttons. */
-  #touchHint { position: fixed; left: 50%; bottom: 168px; transform: translateX(-50%); z-index: 6; color: #e2e8f0; font-size: 14px; font-weight: 600; background: rgba(11,14,20,0.85); border: 1px solid rgba(255,255,255,0.25); border-radius: 10px; padding: 8px 14px; pointer-events: none; white-space: nowrap; max-width: 92vw; overflow: hidden; text-overflow: ellipsis; display: none; }
-  body.touch-device #touchHint.show { display: block; }
-  #touchHint.action { border-color: #f472b6; color: #fbcfe8; box-shadow: 0 0 16px rgba(244,114,182,0.45); }
+  /* Top banner (Builder A v4): the ONLY tutorial/help text while playing.
+     Small strip at the top edge, centred between the HUD (left) and the
+     minimap (right). Dismiss with X or T; a small "?" re-opens it. */
+  #topBanner { position: fixed; left: 50%; top: 8px; transform: translateX(-50%); z-index: 7; display: flex; align-items: center; gap: 8px; background: rgba(11,14,20,0.88); color: #e2e8f0; border: 1px solid rgba(255,255,255,0.3); border-radius: 10px; padding: 7px 10px; font-size: 13px; line-height: 1.35; max-width: 46vw; }
+  #topBanner.hidden { display: none; }
+  #bannerText { overflow: hidden; }
+  #bannerClose { flex: none; background: transparent; border: none; color: #94a3b8; font-size: 14px; line-height: 1; cursor: pointer; padding: 2px 4px; }
+  #bannerClose:hover { color: #f8fafc; }
+  #bannerShow { position: fixed; left: 50%; top: 8px; transform: translateX(-50%); z-index: 7; width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.35); background: rgba(11,16,38,0.85); color: #eef1f5; font-size: 15px; font-weight: 800; cursor: pointer; }
+  #bannerShow.hidden { display: none; }
+  /* Crosshair: shown only while aiming (hold right mouse / AIM button). */
+  #crosshair { position: fixed; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; z-index: 6; pointer-events: none; display: none; }
+  #crosshair.show { display: block; }
+  #crosshair::before { content: ''; position: absolute; left: 0; top: 12px; width: 26px; height: 2px; background: #f8fafc; box-shadow: 0 0 3px #000; }
+  #crosshair::after { content: ''; position: absolute; left: 12px; top: 0; width: 2px; height: 26px; background: #f8fafc; box-shadow: 0 0 3px #000; }
+  /* Aim-lock marker: red bracket + label tracking the locked target. */
+  #lockMarker { position: fixed; width: 56px; height: 56px; margin: -28px 0 0 -28px; border: 2px solid #ef4444; border-radius: 10px; z-index: 6; pointer-events: none; display: none; box-shadow: 0 0 12px rgba(239,68,68,0.6); }
+  #lockMarker.show { display: block; }
+  #lockLabel { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); white-space: nowrap; background: rgba(11,14,20,0.9); color: #fca5a5; border: 1px solid #ef4444; border-radius: 6px; padding: 2px 8px; font-size: 12px; font-weight: 700; }
+  /* Retired in v4 (kept in the DOM, hidden): #hudHint is still observed
+     by input.js to drive the touch CAR button label, and #touchHint is
+     its mirror pill — both are now replaced visually by #topBanner. */
+  #hudHint, #touchHint { display: none !important; }
   #webglError { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #0b0e14; color: #f8fafc; z-index: 40; padding: 24px; text-align: center; font-size: 17px; line-height: 1.6; }
   #webglError[hidden] { display: none; }
   .panel { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(5, 8, 16, 0.72); z-index: 20; padding: 12px; box-sizing: border-box; }
@@ -67,6 +81,25 @@
   #btnMap { right: 20px; bottom: 260px; }
   #btnPack { right: 96px; bottom: 216px; }
   #btnSet { right: 172px; bottom: 108px; }
+  /* Builder B v4 rev 3: driving pedals. BRAKE is big and by the stick
+     (left thumb); GAS is on the opposite side, above SET. Both are hidden
+     unless the body has .driving (main.js toggles it), so they never
+     clutter the on-foot controls. */
+  #btnBrake { left: 158px; bottom: 28px; width: 88px; height: 88px; font-size: 15px; background: rgba(239,68,68,0.55); display: none; }
+  #btnGas { right: 172px; bottom: 216px; width: 72px; height: 72px; background: rgba(34,197,94,0.5); display: none; }
+  body.driving #btnBrake, body.driving #btnGas { display: block; }
+  /* Builder A v4: AIM sits directly ABOVE the stick (left:24, bottom:170)
+     — the old spot right of the stick (left:160) collided with the GUN
+     button (right:172 bottom:28 = x154-218 on a 390px screen; AIM and
+     GUN drew as one blob). Above the stick is clear of every other
+     button and still under the left thumb while it works the stick. */
+  #btnAim { left: 24px; bottom: 170px; background: rgba(239,68,68,0.45); border-color: rgba(252,165,165,0.8); }
+  #btnAim.aiming { background: rgba(239,68,68,0.85); box-shadow: 0 0 16px rgba(239,68,68,0.8); }
+  /* Resolved (Builder A v4, per Builder C's merge note): AIM is on-foot
+     only, BRAKE is driving-only — they share this corner, so AIM hides
+     while driving (body.driving is toggled by main.js updateHud) and
+     BRAKE is display:none while on foot. No overlap in either state. */
+  body.driving #btnAim { display: none; }
   /* Desktop quick buttons: same three actions, top-right under the minimap.
      Hidden on touch devices (the #touch buttons serve there) and until the
      game starts (startGame removes .hidden). */
@@ -89,9 +122,15 @@
   @media (max-width: 640px) {
     .card h1 { font-size: 30px; }
     .card { padding: 16px; }
-    #hudHint { display: none; }
     #hudObjective { max-width: 60vw; }
     #minimap { width: 104px; height: 104px; }
+    /* Banner tucks under the minimap (bottom edge ~116px) in the free
+       right-hand strip — never over the HUD column or the centre. Long
+       HUD lines (objective / GPS) wrap at 44vw so they never run under
+       the banner (its left edge sits at ~180px on a 390px screen). */
+    #topBanner { top: 124px; left: auto; right: 10px; transform: none; max-width: 200px; font-size: 12px; }
+    #bannerShow { top: 124px; left: auto; right: 10px; transform: none; }
+    #hudObjective, #hudGps { max-width: 44vw; }
   }
 </style>
 </head>
@@ -115,7 +154,10 @@
   <p id="hudState">Vice Harbor</p>
 </div>
 <canvas id="minimap" class="hidden" width="150" height="150"></canvas>
-<div id="hudMsg"></div>
+<div id="topBanner" class="hidden"><span id="bannerText"></span><button id="bannerClose" aria-label="Dismiss help">✕</button></div>
+<button id="bannerShow" class="hidden" title="Show help (T)">?</button>
+<div id="crosshair"></div>
+<div id="lockMarker"><span id="lockLabel"></span></div>
 <div id="hudHint" class="hidden">WASD move &middot; Shift run &middot; E interact &middot; M map &middot; B backpack &middot; H holster</div>
 <div id="touchHint"></div>
 
@@ -129,7 +171,7 @@
     <button class="btn" id="btnNew" data-i18n="newGame">New Game</button>
     <button class="btn secondary hidden" id="btnContinue" data-i18n="continue">Continue</button>
     <button class="btn secondary" id="btnSettings" data-i18n="settings">Settings</button>
-    <p class="keys"><b>WASD / Arrows</b> move &middot; <b>A / D</b> turn &middot; <b>Shift</b> run &middot; <b>E</b> enter car / shop &middot; <b>F</b> exit vehicle &middot; <b>H</b> holster &middot; <b>1/2</b> weapon &middot; <b>M</b> map &middot; <b>B</b> backpack &middot; <b>N</b> mute.<br>On phones: left stick to move, push it far to run.</p>
+    <p class="keys"><b>WASD / Arrows</b> move &middot; <b>A / D</b> turn &middot; <b>Shift</b> run &middot; <b>E</b> enter car / shop &middot; <b>F</b> exit vehicle &middot; <b>H</b> holster &middot; <b>1/2</b> weapon &middot; <b>M</b> map &middot; <b>B</b> backpack &middot; <b>N</b> mute &middot; hold <b>Right-click / AIM</b> to lock a target. Driving: <b>W</b> gas, <b>S</b> brake / reverse, <b>A / D</b> steer. Drag the empty screen to orbit the camera 360&deg;.<br>On phones: left stick to move, push it far to run. While driving the stick only steers — use the <b>GAS</b> / <b>REM</b> pedals. Swipe the empty screen to orbit the camera.</p>
   </div>
 </div>
 
@@ -194,6 +236,9 @@
   <button class="tbtn" id="btnMap">MAP</button>
   <button class="tbtn" id="btnPack">PACK</button>
   <button class="tbtn" id="btnSet">SET</button>
+  <button class="tbtn" id="btnBrake">REM</button>
+  <button class="tbtn" id="btnGas">GAS</button>
+  <button class="tbtn" id="btnAim">AIM</button>
 </div>
 
 <script src="./vendor/three.min.js"></script>
