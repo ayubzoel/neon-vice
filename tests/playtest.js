@@ -404,6 +404,13 @@ async function main() {
         while (Date.now() - t0 < maxMs) {
           const st = await stats(page);
           if (st.missionId !== n || st.mission === 'done' || st.mission === 'complete') return true;
+          // HARNESS-ONLY (v4 retest): heal on the walk like playCombat does.
+          // The goto walker strolls on foot for minutes; without a heal a
+          // stray police bullet from the PREVIOUS mission's heat (or the
+          // mission's own wanted stage) kills Vera mid-walk and the mission
+          // "fails" without any mission logic being wrong (mission 9, v4
+          // run 1: Vera died walking to the safehouse at wanted 2).
+          if (st.hp < 75) await page.evaluate(() => window.NEON_VICE.debug.setHp(100));
           const tgt = await page.evaluate(() => {
             const t = window.NEON_VICE.game.missions.stageTarget();
             return t ? [t.x, t.z] : null;
@@ -540,6 +547,11 @@ async function main() {
 
       for (let n = fromN; n <= toN; n += 1) {
         const before = await stats(page);
+        // HARNESS-ONLY (v4 retest): clean slate per mission — the previous
+        // mission's heat/police must not leak into the next mission's
+        // walk-in (mission 9, v4 run 1: leftover heat got Vera shot dead
+        // on foot before the mission's own stages ran).
+        await page.evaluate(() => { window.NEON_VICE.debug.setWanted(0); window.NEON_VICE.debug.clearPolice(); window.NEON_VICE.debug.setHp(100); });
         await page.evaluate((n) => window.NEON_VICE.debug.startMission(n), n);
         await sleep(400);
         let ok = false;
