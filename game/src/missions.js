@@ -286,7 +286,11 @@ export function createMissions(scene, world, ctx) {
       stageState.tx = carSpot.x;
       stageState.tz = carSpot.z;
       const near = ctx.vehicles.nearestVehicle(carSpot.x, carSpot.z, 25);
-      if (!near || near.kind !== stage.kind) {
+      // Only a PARKED car counts: nearestVehicle also returns traffic cars,
+      // and a traffic car drives off while the player walks to it — with
+      // 22 cars on the road that stopped being a rare fluke. A moving car
+      // of the right kind nearby means a fresh mission car is spawned.
+      if (!near || near.kind !== stage.kind || !near.parked) {
         const v = ctx.vehicles.addVehicle(stage.kind, 0xf59e0b, carSpot.x, carSpot.z, 0, { parked: true, missionCar: true });
         stageState.missionVehicle = v;
       } else {

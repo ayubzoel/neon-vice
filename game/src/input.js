@@ -25,6 +25,7 @@ const KEYMAP = {
 
 const ACTION_KEYS = {
   KeyE: 'interact',
+  KeyF: 'exitVehicle', // dedicated exit key: never opens a shop or enters a car
   KeyH: 'holster',
   KeyM: 'map',
   KeyB: 'backpack',
@@ -54,7 +55,8 @@ function keyLabel(code) {
 }
 const ACTION_LABELS = {
   forward: 'Move forward', back: 'Move back', left: 'Turn left', right: 'Turn right',
-  run: 'Run', interact: 'Enter car / open shop / exit', holster: 'Holster / draw weapon',
+  run: 'Run', interact: 'Enter car / open shop / exit', exitVehicle: 'Exit vehicle',
+  holster: 'Holster / draw weapon',
   map: 'Open map', backpack: 'Open backpack / phone', phone: 'Open backpack / phone',
   mute: 'Mute / unmute', reload: 'Reload', jump: 'Jump',
   weapon1: 'Select pistol', weapon2: 'Select SMG', pause: 'Pause / settings',

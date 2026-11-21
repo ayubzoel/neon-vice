@@ -23,7 +23,9 @@ export function createMap(world) {
 
   // missionTarget: {x, z} of the active mission stage (optional) — drawn
   // as a gold diamond + "!" so the mission target is unmistakable on the map.
-  function draw(canvas, playerPos, heading, missionTarget) {
+  // extras (optional): { pedestrians: [{x, z}], traffic: [{x, z}] } — the
+  // living city as dots, so the map shows where the crowds and cars are.
+  function draw(canvas, playerPos, heading, missionTarget, extras) {
     const ctx = canvas.getContext('2d');
     const w = canvas.width;
     const h = canvas.height;
@@ -140,6 +142,23 @@ export function createMap(world) {
       ctx.fillStyle = '#ffd400';
       ctx.font = 'bold 13px system-ui, sans-serif';
       ctx.fillText('MISSION TARGET', mx + 20, my - 8);
+    }
+    // Ambient life: traffic cars as amber dots, pedestrians as white dots.
+    if (extras) {
+      if (Array.isArray(extras.traffic)) {
+        ctx.fillStyle = '#f59e0b';
+        for (const v of extras.traffic) {
+          const [mx, my] = toMap(v.x, v.z);
+          ctx.beginPath(); ctx.arc(mx, my, 3, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+      if (Array.isArray(extras.pedestrians)) {
+        ctx.fillStyle = '#e2e8f0';
+        for (const p of extras.pedestrians) {
+          const [mx, my] = toMap(p.x, p.z);
+          ctx.beginPath(); ctx.arc(mx, my, 2, 0, Math.PI * 2); ctx.fill();
+        }
+      }
     }
     // Player arrow.
     const [px, py] = toMap(playerPos.x, playerPos.z);

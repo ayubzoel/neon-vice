@@ -82,6 +82,10 @@ export function createUI(settings) {
     const el = $('hudClock');
     if (el) el.textContent = `${text}${raining ? ' · ' + t('rain') : ''}`;
   }
+  function setAmbient(nPeds, nCars) {
+    const el = $('hudAmbient');
+    if (el) el.textContent = `NPC ${nPeds} · Cars ${nCars}`;
+  }
   function setGps(dist, name) {
     const el = $('hudGps');
     if (el) el.textContent = name ? `GPS ${name} · ${Math.round(dist)}m` : '';
@@ -193,7 +197,7 @@ export function createUI(settings) {
 
   return {
     t, setLang, get lang() { return lang; },
-    setMoney, setWanted, setHp, setAmmo, setObjective, setClock, setGps, toast,
+    setMoney, setWanted, setHp, setAmmo, setObjective, setClock, setAmbient, setGps, toast,
     drawMinimap,
     showPanel(id) { $(id)?.classList.remove('hidden'); },
     hidePanel(id) { $(id)?.classList.add('hidden'); },

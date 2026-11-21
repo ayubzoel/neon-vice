@@ -15,7 +15,7 @@
 
 import { CONFIG } from './config.js';
 import * as TEX from './textures.js';
-import { buildRoadGraph } from './roadgraph.js';
+import { buildRoadGraph, trafficLightState } from './roadgraph.js';
 import {
   XS, ZS, V_WIDTHS, H_WIDTHS, WATER_X0, SAND_X0,
   zoneOf, RESERVED, PARK_CELL, PLAZA_CELL, NEON_COLORS,
@@ -509,15 +509,17 @@ export function createWorld(scene) {
       scene.add(m);
     }
     if (heads.instanceColor) heads.instanceColor.needsUpdate = true;
-    // Signal cycle: NS green 0-8 s, yellow 8-10 s, EW green 10-18 s, yellow 18-20 s.
+    // Signal cycle: NS green 0-8 s, yellow 8-10 s, EW green 10-18 s, yellow
+    // 18-20 s — the same cycle trafficLightState() reports to the drivers,
+    // so the heads and the cars always agree.
     const RED = new THREE.Color(0xff2222);
     const YELLOW = new THREE.Color(0xffcc00);
     const GREEN = new THREE.Color(0x22ff66);
     const updateLights = () => {
-      const t = (Date.now() / 1000) % 20;
-      const ns = t < 8 ? GREEN : t < 10 ? YELLOW : RED;
-      const ew = t >= 10 && t < 18 ? GREEN : t >= 18 ? YELLOW : RED;
-      for (const h of tlHeads) heads.setColorAt(h.index, h.axis === 'NS' ? ns : ew);
+      const ns = trafficLightState('NS');
+      const ew = trafficLightState('EW');
+      const col = (s) => (s === 'green' ? GREEN : s === 'yellow' ? YELLOW : RED);
+      for (const h of tlHeads) heads.setColorAt(h.index, h.axis === 'NS' ? col(ns) : col(ew));
       heads.instanceColor.needsUpdate = true;
     };
     updateLights();
@@ -841,6 +843,35 @@ export function createWorld(scene) {
     return null;
   }
 
+  // Sidewalk spots nearest to (x, z): the centre of each 3 m sidewalk strip
+  // flanking the nearest road segment, nearest side first. A sidewalk point
+  // is walkable by construction (between the road edge and the building
+  // line) — this is what the vehicle-exit code uses so Vera steps onto the
+  // pavement, never onto the asphalt or into a wall. Returns [] when the
+  // point is nowhere near a road (e.g. mid-block), so callers fall back.
+  function nearestSidewalk(x, z) {
+    const near = roadGraph.nearestOnRoad(x, z);
+    if (!near || near.dist > 60) return [];
+    const s = roadGraph.segments[near.segment];
+    const alongX = s.kind === 'horizontal';
+    const off = s.width / 2 + 1.5;
+    const dx = s.bx - s.ax;
+    const dz = s.bz - s.az;
+    const len2 = dx * dx + dz * dz;
+    let t = len2 === 0 ? 0 : ((x - s.ax) * dx + (z - s.az) * dz) / len2;
+    t = Math.max(0, Math.min(1, t));
+    const cx = s.ax + dx * t;
+    const cz = s.az + dz * t;
+    const out = [];
+    for (const side of [1, -1]) {
+      const px = cx + (alongX ? 0 : side * off);
+      const pz = cz + (alongX ? side * off : 0);
+      out.push({ x: px, z: pz, dist: Math.hypot(px - x, pz - z), side, segment: near.segment });
+    }
+    out.sort((a, b) => a.dist - b.dist);
+    return out;
+  }
+
   const destinations = [
     { id: 'plaza', name: 'Plaza Vera', x: 0, z: 40, kind: 'plaza' },
     { id: 'park', name: 'Taman Merdeka', x: -240, z: 180, kind: 'park' },
@@ -885,6 +916,7 @@ export function createWorld(scene) {
       return 0;
     },
     findOpenGround,
+    nearestSidewalk,
     collides,
     isInWater,
     destinations,
@@ -918,6 +950,7 @@ export function createWorld(scene) {
     world: api,
     groundHeightAt: api.groundHeightAt,
     findOpenGround: api.findOpenGround,
+    nearestSidewalk: api.nearestSidewalk,
     collides: api.collides,
     isInWater: api.isInWater,
   };

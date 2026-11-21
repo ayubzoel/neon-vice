@@ -233,30 +233,92 @@ export function createVehicles(scene, world) {
     v.mesh.position.y = isBoat ? 0.15 + Math.sin(Date.now() * 0.001 + v.id) * 0.05 : 0;
   }
 
+  // Fresh graph route from the car's current position. The car drives to
+  // path[0] (the nearest node) FIRST: steering straight at path[1] from
+  // mid-street cuts the corner across blocks — the car ends up off-road,
+  // beelining diagonally, and wedges on a building.
+  function repathStock(v) {
+    if (!world.roadGraph || !world.roadGraph.findPath) return false;
+    try {
+      const p = world.roadGraph.findPath(
+        { x: v.mesh.position.x, z: v.mesh.position.z },
+        { x: (Math.random() - 0.5) * 800, z: (Math.random() - 0.5) * 600 },
+      );
+      if (Array.isArray(p) && p.length > 1) {
+        v.path = p;
+        v.pathIndex = 0;
+        return true;
+      }
+    } catch { /* keep the loop */ }
+    return false;
+  }
+
   function updateTraffic(dt) {
     for (const v of traffic) {
+      // Backing out of a wedge (same as the ambient cars): reverse along
+      // the way the car came instead of retrying a blocked beeline.
+      if (v.reverse > 0) {
+        v.reverse -= dt;
+        const bx = v.mesh.position.x - Math.sin(v.heading) * 4 * dt;
+        const bz = v.mesh.position.z - Math.cos(v.heading) * 4 * dt;
+        if (!world.collides || !world.collides(bx, bz, 1.4)) {
+          v.mesh.position.x = bx;
+          v.mesh.position.z = bz;
+        } else {
+          v.reverse = 0;
+        }
+        v.speed = -4;
+        v.mesh.rotation.y = v.heading;
+        continue;
+      }
       if (v.wait > 0) {
         v.wait -= dt;
         continue;
       }
       let target = v.path[v.pathIndex];
-      // Use the road graph when the world has one: re-path occasionally.
-      if (world.roadGraph && world.roadGraph.findPath && Math.random() < 0.002) {
-        try {
-          const p = world.roadGraph.findPath(
-            { x: v.mesh.position.x, z: v.mesh.position.z },
-            { x: (Math.random() - 0.5) * 800, z: (Math.random() - 0.5) * 600 },
-          );
-          if (Array.isArray(p) && p.length > 1) {
-            v.path = p;
-            v.pathIndex = 1;
-            target = v.path[1];
-          }
-        } catch { /* keep the loop */ }
+      // Use the road graph when the world has one: re-path occasionally —
+      // but only from a node, never mid-street (see repathStock).
+      if (Math.random() < 0.002) {
+        if (repathStock(v)) target = v.path[v.pathIndex];
       }
       const dx = target.x - v.mesh.position.x;
       const dz = target.z - v.mesh.position.z;
       const dist = Math.hypot(dx, dz);
+      // Red light + anti-pileup (same rules as the ambient cars): stop
+      // before a signalised arterial intersection on red, crawl on yellow,
+      // and never drive into the vehicle ahead.
+      let hold = false;
+      let cap = Infinity;
+      const graph = world.roadGraph;
+      if (graph && graph.arterialNodeNear) {
+        const node = graph.arterialNodeNear(target.x, target.z, 3);
+        if (node && dist < 22) {
+          const axis = Math.abs(dx) > Math.abs(dz) ? 'EW' : 'NS';
+          const state = graph.trafficLight(axis);
+          if (state === 'red') hold = true;
+          else if (state === 'yellow') cap = 3;
+        }
+      }
+      if (!hold) {
+        const fx = Math.sin(v.heading);
+        const fz = Math.cos(v.heading);
+        for (const o of vehicles) {
+          // Traffic cars going the same direction only: parked / mission /
+          // driven cars and opposite-direction cars are excluded — holding
+          // for them deadlocks (a mission car never moves; a head-on car
+          // waits for you while you wait for it).
+          if (o === v || !o.traffic) continue;
+          if (Math.sin(o.heading) * fx + Math.cos(o.heading) * fz < 0.5) continue;
+          const ox = o.mesh.position.x - v.mesh.position.x;
+          const oz = o.mesh.position.z - v.mesh.position.z;
+          const od = Math.hypot(ox, oz);
+          if (od < 8 && od > 0.01 && (ox * fx + oz * fz) / od > 0.5) { hold = true; break; }
+        }
+      }
+      if (hold) {
+        v.speed = Math.max(0, v.speed - 24 * dt);
+        continue;
+      }
       if (dist < 6) {
         v.pathIndex = (v.pathIndex + 1) % v.path.length;
         continue;
@@ -265,13 +327,27 @@ export function createVehicles(scene, world) {
       let diff = targetHeading - v.heading;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
-      v.heading += Math.max(-1.4 * dt, Math.min(1.4 * dt, diff));
-      v.speed = Math.min(v.speed + 8 * dt, 12);
+      // Same steering as the ambient cars (their loop measured 0 off-road
+      // samples): the old 12 m/s + 1.4 rad/s cap swung wide over every
+      // 90-degree corner, and once off the road the car beelined across
+      // blocks toward the next node instead of following the graph — car 11
+      // sat off-road 27/30 samples and barely moved. Slow for turns and
+      // near nodes (4 m/s), steer up to 2.5 rad/s, cruise at 10 m/s; a car
+      // that ever does end up off-road (e.g. abandoned by the player
+      // mid-block) crawls at 4 m/s back to the nearest node.
+      v.heading += Math.max(-2.5 * dt, Math.min(2.5 * dt, diff));
+      let wantSpeed = (Math.abs(diff) > 0.5 || dist < 14) ? 4 : 10;
+      if (graph && graph.isOnRoad && !graph.isOnRoad(v.mesh.position.x, v.mesh.position.z)) {
+        wantSpeed = Math.min(wantSpeed, 4);
+      }
+      v.speed += Math.sign(wantSpeed - v.speed) * Math.min(Math.abs(wantSpeed - v.speed), 8 * dt);
+      if (cap < Infinity) v.speed = Math.min(v.speed, cap);
       const nx = v.mesh.position.x + Math.sin(v.heading) * v.speed * dt;
       const nz = v.mesh.position.z + Math.cos(v.heading) * v.speed * dt;
       if (world.collides && world.collides(nx, nz, 1.4)) {
-        v.wait = 1.5; // blocked: pause, then the loop re-paths past it
-        v.speed = 0;
+        v.reverse = 0.8; // back out of the wedge, then take a fresh route
+        v.speed = -4;
+        repathStock(v);
       } else {
         v.mesh.position.x = nx;
         v.mesh.position.z = nz;

@@ -2,6 +2,15 @@
 // a connected grid of streets over Vice Harbor, with BFS pathfinding and
 // nearest-road queries used by gameplay (Builder C) and the GPS.
 
+// 20 s signal cycle, the single source of truth for both the visual heads
+// in world.js and the traffic drivers in vehicles.js / ambient.js:
+// NS green 0-8 s, yellow 8-10 s, EW green 10-18 s, yellow 18-20 s.
+export function trafficLightState(axis, nowMs = Date.now()) {
+  const t = (((nowMs / 1000) % 20) + 20) % 20;
+  if (axis === 'NS') return t < 8 ? 'green' : t < 10 ? 'yellow' : 'red';
+  return t >= 10 && t < 18 ? 'green' : t >= 18 ? 'yellow' : 'red';
+}
+
 // xs: vertical streets (constant x), zs: horizontal streets (constant z).
 // vWidths[i] / hWidths[j]: full road width of street i / j.
 export function buildRoadGraph(xs, zs, vWidths, hWidths) {
@@ -82,6 +91,37 @@ export function buildRoadGraph(xs, zs, vWidths, hWidths) {
     adjacency,
 
     nearestNode,
+    // A signalised intersection: an arterial street crosses an arterial
+    // street here (both widths >= 12 m) — the only nodes with traffic
+    // lights (world.js puts poles exactly on these nodes).
+    isArterialNode(nodeId) {
+      const n = nodes[nodeId];
+      if (!n) return false;
+      let hArt = false;
+      let vArt = false;
+      for (const e of adjacency[nodeId]) {
+        const s = segments[e.seg];
+        if (s.kind === 'horizontal' && s.arterial) hArt = true;
+        if (s.kind === 'vertical' && s.arterial) vArt = true;
+      }
+      return hArt && vArt;
+    },
+    // Nearest arterial node to (x, z) within maxD metres, or null.
+    arterialNodeNear(x, z, maxD = 3) {
+      let best = null;
+      let bestD = maxD;
+      for (const n of nodes) {
+        if (!this.isArterialNode(n.id)) continue;
+        const d = Math.hypot(n.x - x, n.z - z);
+        if (d < bestD) { bestD = d; best = n; }
+      }
+      return best;
+    },
+    // Signal state for one travel axis ('NS' = along a vertical street,
+    // 'EW' = along a horizontal street). Same 20 s cycle as the heads.
+    trafficLight(axis) {
+      return trafficLightState(axis);
+    },
     // BFS from a node id: set of reachable node ids.
     bfsFrom(startId) {
       return new Set(bfs(startId).keys());

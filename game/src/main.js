@@ -73,6 +73,8 @@ function normalizeWorld(raw) {
       // B's findOpenGround returns null when nothing is open within maxR;
       // callers expect a point, so fall back to the raw coordinates.
       ? (x, z, r) => raw.findOpenGround(x, z, r) || { x, z } : (x, z) => ({ x, z }),
+    nearestSidewalk: typeof raw.nearestSidewalk === 'function'
+      ? (x, z) => raw.nearestSidewalk(x, z) : () => [],
     counts: raw.counts || {},
   };
 }
@@ -312,17 +314,20 @@ function nearestInteractable() {
 
 function doInteract() {
   if (driving) {
-    // Exit: place Vera beside the vehicle on open ground. A boat sits in
-    // deep water, where Vera cannot stand — so for boats search far enough
-    // to reach the shore (BUG-1 soft-lock: the old 4 m search fell back to
-    // the water position and Vera froze). Swimming (player.js) is the
-    // second safety net if she ever ends up in the water anyway.
+    // Exit: place Vera on the nearest SAFE sidewalk — not on the asphalt,
+    // not inside a building, not inside another vehicle. The old code put
+    // her at car.x + 3, which landed on the road itself when the car was
+    // parked/driven on a street, or deep inside a block when the car had
+    // cut a corner. Candidates are the sidewalk centrelines flanking the
+    // nearest road (world.nearestSidewalk), nearest first, each rejected
+    // when it collides, is water, or sits within another vehicle's
+    // footprint; the ring around the car is the last resort.
     const v = driving;
     driving = null;
-    const spot = v.kind === 'boat'
-      ? world.findOpenGround(v.mesh.position.x, v.mesh.position.z, 160)
-      : world.findOpenGround(v.mesh.position.x + 3, v.mesh.position.z, 4);
+    const spot = findExitSpot(v);
     player.group.position.set(spot.x, 0, spot.z);
+    player.heading = Math.atan2(spot.x - v.mesh.position.x, spot.z - v.mesh.position.z);
+    player.group.rotation.y = player.heading;
     player.group.visible = true;
     if (v.kind === 'boat') ui.toast(world.isInWater && world.isInWater(spot.x, spot.z) ? 'Swim to shore — hold W' : 'You wade ashore.');
     return;
@@ -337,6 +342,65 @@ function doInteract() {
   } else if (near.kind === 'shop') {
     openShop(near.shop);
   }
+}
+
+// Nearest safe exit spot for a vehicle: sidewalk first, open ground as a
+// fallback. A boat sits in deep water, where Vera cannot stand — so for
+// boats search far enough to reach the shore (BUG-1 soft-lock: the old 4 m
+// search fell back to the water position and Vera froze). Swimming
+// (player.js) is the second safety net if she ever ends up in the water
+// anyway.
+function findExitSpot(v) {
+  const vx = v.mesh.position.x;
+  const vz = v.mesh.position.z;
+  if (v.kind === 'boat') {
+    return world.findOpenGround(vx, vz, 160);
+  }
+  const clear = (x, z) => {
+    if (world.collides && world.collides(x, z, 0.8)) return false;
+    if (world.isInWater && world.isInWater(x, z)) return false;
+    for (const o of vehicles.list) {
+      if (o !== v && Math.hypot(o.mesh.position.x - x, o.mesh.position.z - z) < 3) return false;
+    }
+    return true;
+  };
+  const cands = [];
+  // Sidewalk centrelines by the nearest road, nearest first; also the same
+  // sidewalks 8 m up/down the street, in case the nearest point is blocked
+  // by another car or a pole.
+  try {
+    const near = world.roadGraph && world.roadGraph.nearestOnRoad
+      ? world.roadGraph.nearestOnRoad(vx, vz) : null;
+    const walks = world.nearestSidewalk ? world.nearestSidewalk(vx, vz) : [];
+    for (const w of walks) cands.push(w);
+    if (near) {
+      const s = world.roadGraph.segments[near.segment];
+      const alongX = s.kind === 'horizontal';
+      const off = s.width / 2 + 1.5;
+      const dx = s.bx - s.ax;
+      const dz = s.bz - s.az;
+      const len = Math.hypot(dx, dz) || 1;
+      for (const shift of [-8, 8]) {
+        for (const side of [1, -1]) {
+          const bx = near.x + (dx / len) * shift + (alongX ? 0 : side * off);
+          const bz = near.z + (dz / len) * shift + (alongX ? side * off : 0);
+          cands.push({ x: bx, z: bz, dist: Math.hypot(bx - vx, bz - vz) });
+        }
+      }
+    }
+  } catch { /* fall through to the ring */ }
+  cands.sort((a, b) => a.dist - b.dist);
+  for (const c of cands) if (clear(c.x, c.z)) return { x: c.x, z: c.z };
+  // Last resort: the ring around the car, then any open ground nearby.
+  for (let r = 3; r <= 9; r += 3) {
+    for (let k = 0; k < 8; k += 1) {
+      const a = (k / 8) * Math.PI * 2;
+      const x = vx + Math.cos(a) * r;
+      const z = vz + Math.sin(a) * r;
+      if (clear(x, z)) return { x, z };
+    }
+  }
+  return world.findOpenGround(vx + 3, vz, 4);
 }
 
 // ---- Panels ----
@@ -583,6 +647,9 @@ function step(dt) {
 
   // Actions.
   if (pressed.has('interact')) doInteract();
+  // F is the dedicated exit key (E stays the general interact key): it
+  // only ever exits a vehicle, so it can never open a shop by mistake.
+  if (pressed.has('exitVehicle') && driving) doInteract();
   if (pressed.has('holster')) {
     combat.toggleHolster();
     ui.toast(combat.holstered ? 'Weapon holstered' : `Weapon out: ${combat.weapons[combat.current].name}`);
@@ -641,6 +708,7 @@ function updateHud(dt) {
   ui.setHp(player.hp, player.maxHp);
   ui.setAmmo(driving ? '—' : `${combat.weapons[combat.current].name} ${combat.ammoText()}${combat.isReloading() ? ' …' : ''}`);
   ui.setClock(weather.clockText(), weather.raining);
+  ui.setAmbient(ambient.stats().pedestrians, ambient.stats().trafficTotal);
   // GPS (BUG-GPS): name, distance and the 3D arrow must all point at the
   // SAME target. GPS wins when set; otherwise the mission target with the
   // mission stage name. The old code measured the mission target but
@@ -686,9 +754,13 @@ function updateHud(dt) {
       world.roadGraph ? world.roadGraph.segments : null,
     );
   }
-  // Map overlay redraw (pass the live mission target for its map icon).
+  // Map overlay redraw (pass the live mission target for its map icon, plus
+  // the ambient pedestrians + traffic so the map shows the living city).
   if (mapSys.isOpen) {
-    mapSys.draw(document.getElementById('mapCanvas'), p, player.heading, missions.stageTarget());
+    mapSys.draw(document.getElementById('mapCanvas'), p, player.heading, missions.stageTarget(), {
+      pedestrians: ambient.pedestrians,
+      traffic: vehicles.list.filter((v) => v.traffic),
+    });
   }
 }
 
@@ -757,6 +829,7 @@ function frame(now) {
         driving: !!driving, hour: weather.hour, raining: weather.raining,
         quality: settings.quality, softwareGL, swimming: player.swimming,
         ambient: ambient.stats(),
+        drawCalls: renderer.info.render.calls,
       }),
       game: { player, vehicles, ambient, combat, missions, shops, weather, save, map: mapSys, ui, audio, input, world },
       debug: {
@@ -785,6 +858,71 @@ function frame(now) {
         startSideJob: (kind) => missions.startSideJob(kind),
         setHour: (h) => weather.setHour(h),
         setRain: (on) => weather.setRain(on),
+        // Test hook: exit the current vehicle (same path as E / EXIT).
+        exitVehicle: () => { if (driving) doInteract(); return !driving; },
+        // Test hooks (Builder A v3): verify the pedestrians really walk
+        // the sidewalks and the traffic really stays on the roads.
+        // checkPedestrians: ownOffsetErr = worst |distance to the ped's
+        // own segment centreline - sidewalk offset| (0 = exactly on the
+        // sidewalk centreline); onRoadGlobal counts peds inside any road
+        // band by the global isOnRoad check — sidewalk strips cross the
+        // cross-street's band at intersections by construction, so a
+        // ped turning a corner can read as on-road there.
+        checkPedestrians: () => {
+          const rg = world.roadGraph;
+          const ps = ambient.pedestrians;
+          let maxErr = 0;
+          let onRoadGlobal = 0;
+          let minPair = Infinity;
+          for (const p of ps) {
+            const s = rg.segments[p.seg];
+            // Distance to the ped's OWN segment centreline.
+            const dx = s.bx - s.ax;
+            const dz = s.bz - s.az;
+            const len2 = dx * dx + dz * dz;
+            let t = len2 === 0 ? 0 : ((p.x - s.ax) * dx + (p.z - s.az) * dz) / len2;
+            t = Math.max(0, Math.min(1, t));
+            const cx = s.ax + dx * t;
+            const cz = s.az + dz * t;
+            const dOwn = Math.hypot(p.x - cx, p.z - cz);
+            maxErr = Math.max(maxErr, Math.abs(dOwn - (s.width / 2 + 1.5)));
+            if (rg.isOnRoad(p.x, p.z)) onRoadGlobal += 1;
+          }
+          for (let i = 0; i < ps.length; i += 1) {
+            for (let j = i + 1; j < ps.length; j += 1) {
+              minPair = Math.min(minPair, Math.hypot(ps[i].x - ps[j].x, ps[i].z - ps[j].z));
+            }
+          }
+          return {
+            count: ps.length, maxOwnOffsetErr: +maxErr.toFixed(3),
+            onRoadGlobal, minPair: +minPair.toFixed(2),
+          };
+        },
+        checkTraffic: () => {
+          const rg = world.roadGraph;
+          const cars = vehicles.list.filter((v) => v.traffic);
+          let onRoad = 0;
+          let stopped = 0;
+          let minPair = Infinity;
+          for (const v of cars) {
+            if (rg.isOnRoad(v.mesh.position.x, v.mesh.position.z)) onRoad += 1;
+            if (Math.abs(v.speed) < 0.5) stopped += 1;
+          }
+          for (let i = 0; i < cars.length; i += 1) {
+            for (let j = i + 1; j < cars.length; j += 1) {
+              minPair = Math.min(minPair, Math.hypot(
+                cars[i].mesh.position.x - cars[j].mesh.position.x,
+                cars[i].mesh.position.z - cars[j].mesh.position.z,
+              ));
+            }
+          }
+          return {
+            traffic: cars.length, total: vehicles.list.length, onRoad, stopped,
+            minPair: +minPair.toFixed(2),
+            lightNS: rg.trafficLight ? rg.trafficLight('NS') : null,
+            lightEW: rg.trafficLight ? rg.trafficLight('EW') : null,
+          };
+        },
         // Test hook only: raise the substep budget so game time runs faster
         // than real time under SwiftShader. Shipped default is 8.
         setStepBudget: (n) => { stepBudget = Math.max(1, Math.min(60, n | 0)); },
