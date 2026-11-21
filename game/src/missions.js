@@ -167,6 +167,51 @@ export function createMissions(scene, world, ctx) {
   ring.visible = false;
   scene.add(ring);
 
+  // Mission icon (Builder Markers+Trees): the pink beam + ring alone did
+  // not read as a mission icon, so the active target also gets a big
+  // floating gold diamond that slowly spins and bobs, plus a "!" sprite
+  // that always faces the camera and draws through buildings
+  // (depthTest:false) so the player can spot the target from anywhere in
+  // the city. Purely visual: no collision, no mission logic.
+  const markerGroup = new THREE.Group();
+  markerGroup.visible = false;
+  scene.add(markerGroup);
+  const markerDiamond = new THREE.Mesh(
+    new THREE.OctahedronGeometry(2.8),
+    new THREE.MeshBasicMaterial({ color: 0xffd400 }),
+  );
+  markerGroup.add(markerDiamond);
+  let markerSprite = null;
+  try {
+    const c = document.createElement('canvas');
+    c.width = 128; c.height = 128;
+    const g = c.getContext('2d');
+    g.beginPath(); g.arc(64, 64, 58, 0, Math.PI * 2);
+    g.fillStyle = '#f472b6'; g.fill();
+    g.lineWidth = 6; g.strokeStyle = '#ffffff'; g.stroke();
+    g.fillStyle = '#ffffff';
+    g.font = 'bold 88px system-ui, sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText('!', 64, 68);
+    const tex = new THREE.CanvasTexture(c);
+    markerSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+    // Small badge floating ABOVE the diamond (not on top of it): the first
+    // version used scale 7 at the same centre and swallowed the diamond.
+    markerSprite.scale.set(4.5, 4.5, 1);
+    markerSprite.position.y = 5.5;
+    markerGroup.add(markerSprite);
+  } catch { /* diamond alone still marks the target */ }
+  let markerTime = 0;
+  let markerTarget = null; // {x, z} or null
+  function animateMarker(dt) {
+    if (!markerGroup.visible || !markerTarget) return;
+    markerTime += dt;
+    markerGroup.position.set(markerTarget.x, 10 + Math.sin(markerTime * 2) * 0.9, markerTarget.z);
+    markerDiamond.rotation.y += dt * 1.5;
+    markerDiamond.position.y = 0;
+    if (markerSprite) markerSprite.position.y = 5.5;
+  }
+
   let missionIndex = 0; // index into MISSION_DEFS
   let stageIndex = 0;
   let status = 'idle'; // idle | active | done | failed | complete (all 12 done)
@@ -188,10 +233,15 @@ export function createMissions(scene, world, ctx) {
     beacon.visible = true;
     ring.position.set(x, 0.1, z);
     ring.visible = true;
+    markerTarget = { x, z };
+    markerGroup.position.set(x, 10, z);
+    markerGroup.visible = true;
   }
   function hideBeacon() {
     beacon.visible = false;
     ring.visible = false;
+    markerTarget = null;
+    markerGroup.visible = false;
   }
 
   // Snap a target onto open ground: Builder B's city has buildings in block
@@ -272,6 +322,7 @@ export function createMissions(scene, world, ctx) {
     }
     const target = stageTarget();
     if (target) placeBeacon(target.x, target.z);
+    else hideBeacon(); // e.g. evade stages have no location — clear the old marker
     ctx.onObjective(stage.text);
   }
 
@@ -511,6 +562,13 @@ export function createMissions(scene, world, ctx) {
     currentDef,
     currentStage,
     stageTarget,
+    // Mission-icon state for the harness / HUD checks: null when no
+    // mission target is active (mission done, evade stage, idle).
+    missionMarker() {
+      return markerGroup.visible && markerTarget
+        ? { x: markerTarget.x, z: markerTarget.z, visible: true }
+        : null;
+    },
     // Live positions of the peds the current kill stage needs dead
     // (thugs AND police guards — mission 10's guards are police peds).
     stageSpawned() {
@@ -540,6 +598,7 @@ export function createMissions(scene, world, ctx) {
       return { missionIndex, completed, debtPaid };
     },
     update(dt) {
+      animateMarker(dt);
       updateMission(dt);
       updateSideJob(dt);
     },

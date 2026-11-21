@@ -162,11 +162,25 @@ export function createUI(settings) {
       ctx.beginPath(); ctx.arc(mx, my, 5, 0, Math.PI * 2); ctx.fill();
     }
     if (beaconPos) {
+      // Mission icon on the minimap: a gold diamond with "!" — distinct
+      // from the cyan place dots and the pink GPS dot/line.
       const [mx, my] = toMini(beaconPos.x, beaconPos.z);
-      ctx.fillStyle = '#f472b6';
-      ctx.beginPath(); ctx.arc(mx, my, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.save();
+      ctx.translate(mx, my);
+      ctx.beginPath();
+      ctx.moveTo(0, -9); ctx.lineTo(8, 0); ctx.lineTo(0, 9); ctx.lineTo(-8, 0);
+      ctx.closePath();
+      ctx.fillStyle = '#ffd400';
+      ctx.fill();
       ctx.strokeStyle = '#f472b6';
-      ctx.beginPath(); ctx.arc(mx, my, 9, 0, Math.PI * 2); ctx.stroke();
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = '#111111';
+      ctx.font = 'bold 11px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('!', 0, 0.5);
+      ctx.restore();
     }
     // Player arrow (screen-up = heading).
     ctx.save();

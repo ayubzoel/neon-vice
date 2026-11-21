@@ -566,6 +566,27 @@ export function createWorld(scene) {
   }
 
   // ---- Trees: oaks in the park, palms on the beach, street trees ---------
+  // ROAD CLEARANCE (Builder Markers+Trees): NO tree may stand on a road.
+  // A street tree sits width/2 + 4.6 m from its own street's centreline,
+  // which clears that street — but near an intersection it can still land
+  // ON the cross street (that was the "tree in the middle of the road"
+  // report: the trunk was fine vs its own segment, not vs the crossing
+  // one). So every candidate is checked against EVERY segment via
+  // roadGraph.nearestOnRoad: trunk distance must exceed the nearest
+  // segment's half-width + ROAD_CLEAR_M (4 m: trunk clear of the asphalt
+  // AND the crown, r ≤ 3.2 m, clear of the road edge). A candidate that
+  // fails is retried elsewhere; after N tries the tree is dropped, never
+  // planted on a road. treePositions is exposed for the harness check.
+  const ROAD_CLEAR_M = 4;
+  const treePositions = []; // {x, z, kind} — every planted tree, for verification
+  let treesDropped = 0;
+  let treesRetried = 0; // candidates rejected by clearOfRoads and re-placed elsewhere
+  function clearOfRoads(x, z) {
+    const near = roadGraph.nearestOnRoad(x, z);
+    if (!near) return false;
+    const seg = roadGraph.segments[near.segment];
+    return near.dist > seg.width / 2 + ROAD_CLEAR_M;
+  }
   const oakTrunks = [];
   const oakCrowns = [];
   const palmTrunks = [];
@@ -574,31 +595,53 @@ export function createWorld(scene) {
     const h = randRange(rng, 3.5, 5);
     oakTrunks.push({ x, z, h, tilt: randRange(rng, -0.05, 0.05) });
     oakCrowns.push({ x, z, y: h + 1.2, r: randRange(rng, 2.2, 3.2) });
+    treePositions.push({ x, z, kind: 'oak' });
   }
   function addPalm(x, z) {
     const h = randRange(rng, 5, 7);
     palmTrunks.push({ x, z, h, tilt: randRange(rng, -0.09, 0.09) });
     palmCrowns.push({ x, z, y: h + 0.8, r: randRange(rng, 2.2, 2.8) });
+    treePositions.push({ x, z, kind: 'palm' });
   }
   for (let i = 0; i < 22; i++) {
-    addOak(
-      parkX0 + randRange(rng, 12, parkX1 - parkX0 - 12),
-      parkZ0 + randRange(rng, 12, parkZ1 - parkZ0 - 12),
-    );
+    // Park oaks: retry inside the park until clear of the bordering roads.
+    let placed = false;
+    for (let attempt = 0; attempt < 20 && !placed; attempt++) {
+      const x = parkX0 + randRange(rng, 12, parkX1 - parkX0 - 12);
+      const z = parkZ0 + randRange(rng, 12, parkZ1 - parkZ0 - 12);
+      if (clearOfRoads(x, z)) { addOak(x, z); placed = true; }
+      else treesRetried += 1;
+    }
+    if (!placed) treesDropped += 1;
   }
   for (let z = -420; z <= 420; z += 35) {
-    addPalm(randRange(rng, 428, 456), z + randRange(rng, -8, 8));
+    // Beach palms: x is already ≥24 m east of the last road end; retry the
+    // z jitter if a palm ever lands near a horizontal road's east end.
+    let placed = false;
+    for (let attempt = 0; attempt < 10 && !placed; attempt++) {
+      const x = randRange(rng, 428, 456);
+      const pz = z + randRange(rng, -8, 8);
+      if (clearOfRoads(x, pz)) { addPalm(x, pz); placed = true; }
+      else treesRetried += 1;
+    }
+    if (!placed) treesDropped += 1;
   }
   for (let i = 0; i < 40; i++) {
-    const s = pick(rng, roadGraph.segments);
-    const t = rng();
-    const alongX = s.kind === 'horizontal';
-    const side = rng() < 0.5 ? 1 : -1;
-    const off = s.width / 2 + 4.6;
-    addOak(
-      s.ax + (s.bx - s.ax) * t + (alongX ? 0 : side * off),
-      s.az + (s.bz - s.az) * t + (alongX ? side * off : 0),
-    );
+    // Street trees: retry segment / position / side until the candidate
+    // clears ALL segments (own street + any cross street near a corner).
+    let placed = false;
+    for (let attempt = 0; attempt < 25 && !placed; attempt++) {
+      const s = pick(rng, roadGraph.segments);
+      const t = rng();
+      const alongX = s.kind === 'horizontal';
+      const side = rng() < 0.5 ? 1 : -1;
+      const off = s.width / 2 + 4.6;
+      const x = s.ax + (s.bx - s.ax) * t + (alongX ? 0 : side * off);
+      const z = s.az + (s.bz - s.az) * t + (alongX ? side * off : 0);
+      if (clearOfRoads(x, z)) { addOak(x, z); placed = true; }
+      else treesRetried += 1;
+    }
+    if (!placed) treesDropped += 1;
   }
   function makeTrunks(list, mat) {
     const geo = new THREE.CylinderGeometry(0.2, 0.3, 1, 6);
@@ -816,6 +859,8 @@ export function createWorld(scene) {
   const counts = {
     buildings: buildingCount,
     trees: treeCount,
+    treesDropped,
+    treesRetried,
     trafficLights: tlPoles.length,
     worship: worshipList.length,
     vital: vitalHList.length + vitalPList.length,
@@ -845,6 +890,10 @@ export function createWorld(scene) {
     destinations,
     counts,
     boats,
+    trees: treePositions,
+    treesDropped,
+    treesRetried,
+    roadClearM: ROAD_CLEAR_M,
     trafficLightPositions: tlPositions,
     loadMs,
     // No per-frame work: the city is static except the interval-driven
@@ -859,6 +908,10 @@ export function createWorld(scene) {
     destinations,
     spawn,
     boats,
+    trees: treePositions,
+    treesDropped,
+    treesRetried,
+    roadClearM: ROAD_CLEAR_M,
     trafficLightPositions: tlPositions,
     scene,
     loadMs,

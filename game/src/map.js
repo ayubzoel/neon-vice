@@ -21,7 +21,9 @@ export function createMap(world) {
     return Object.entries(CONFIG.places).map(([id, p]) => ({ x: p.x, z: p.z, name: p.name, id }));
   }
 
-  function draw(canvas, playerPos, heading) {
+  // missionTarget: {x, z} of the active mission stage (optional) — drawn
+  // as a gold diamond + "!" so the mission target is unmistakable on the map.
+  function draw(canvas, playerPos, heading, missionTarget) {
     const ctx = canvas.getContext('2d');
     const w = canvas.width;
     const h = canvas.height;
@@ -115,6 +117,30 @@ export function createMap(world) {
       ctx.fillStyle = '#e2e8f0';
       ctx.fillText(label, slot[0], slot[1]);
     });
+    // Mission target icon: gold diamond + "!" + label, drawn over the
+    // destinations so it cannot be mistaken for a place dot.
+    if (missionTarget) {
+      const [mx, my] = toMap(missionTarget.x, missionTarget.z);
+      ctx.save();
+      ctx.translate(mx, my);
+      ctx.beginPath();
+      ctx.moveTo(0, -16); ctx.lineTo(14, 0); ctx.lineTo(0, 16); ctx.lineTo(-14, 0);
+      ctx.closePath();
+      ctx.fillStyle = '#ffd400';
+      ctx.fill();
+      ctx.strokeStyle = '#f472b6';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.fillStyle = '#111111';
+      ctx.font = 'bold 18px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('!', 0, 1);
+      ctx.restore();
+      ctx.fillStyle = '#ffd400';
+      ctx.font = 'bold 13px system-ui, sans-serif';
+      ctx.fillText('MISSION TARGET', mx + 20, my - 8);
+    }
     // Player arrow.
     const [px, py] = toMap(playerPos.x, playerPos.z);
     ctx.save();

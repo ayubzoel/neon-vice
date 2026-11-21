@@ -686,9 +686,9 @@ function updateHud(dt) {
       world.roadGraph ? world.roadGraph.segments : null,
     );
   }
-  // Map overlay redraw.
+  // Map overlay redraw (pass the live mission target for its map icon).
   if (mapSys.isOpen) {
-    mapSys.draw(document.getElementById('mapCanvas'), p, player.heading);
+    mapSys.draw(document.getElementById('mapCanvas'), p, player.heading, missions.stageTarget());
   }
 }
 
@@ -837,26 +837,48 @@ document.getElementById('btnQuickPack').addEventListener('click', () => {
 document.getElementById('btnQuickSet').addEventListener('click', openSettings);
 document.getElementById('mapCanvas').addEventListener('click', (e) => {
   const rect = e.target.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
-  // Nearest destination in canvas space (recompute the same projection).
   const canvasEl = e.target;
+  // BUG A fix: e.clientX/Y are CSS pixels in the DISPLAYED canvas
+  // (shrunk by #mapCanvas { max-width: 94vw; max-height: 78vh }), while
+  // destinations are projected in canvas ATTRIBUTE pixels
+  // (canvasEl.width/height, up to 900x700). Scale the click into
+  // attribute space first, or every click lands ~10% off its target.
+  const x = (e.clientX - rect.left) * (canvasEl.width / rect.width);
+  const y = (e.clientY - rect.top) * (canvasEl.height / rect.height);
+  // Nearest destination in canvas space (recompute the same projection).
   const W = CONFIG.world.width;
   const D = CONFIG.world.depth;
   const scale = Math.min(canvasEl.width / W, canvasEl.height / D) * 0.92;
   const ox = (canvasEl.width - W * scale) / 2;
   const oy = (canvasEl.height - D * scale) / 2;
+  const dests = mapSys.destinations();
   let best = null;
+  let bestIdx = -1;
   let bestD = 30;
-  for (const d of mapSys.destinations()) {
+  dests.forEach((d, i) => {
     const mx = ox + (d.x + W / 2) * scale;
     const my = oy + (d.z + D / 2) * scale;
     const dist = Math.hypot(mx - x, my - y);
-    if (dist < bestD) { bestD = dist; best = d; }
-  }
+    if (dist < bestD) { bestD = dist; best = d; bestIdx = i; }
+  });
   if (best) {
     mapSys.setGps(best.name);
     ui.toast(`GPS set: ${best.name}`);
+    return;
+  }
+  // Fallback for fat-finger taps: nearest destination within 60 px still
+  // counts, via setGpsByIndex (previously had no callers at all).
+  let nearIdx = -1;
+  let nearD = 60;
+  dests.forEach((d, i) => {
+    const mx = ox + (d.x + W / 2) * scale;
+    const my = oy + (d.z + D / 2) * scale;
+    const dist = Math.hypot(mx - x, my - y);
+    if (dist < nearD) { nearD = dist; nearIdx = i; }
+  });
+  if (nearIdx >= 0) {
+    const t = mapSys.setGpsByIndex(nearIdx);
+    if (t) ui.toast(`GPS set: ${t.name}`);
   }
 });
 document.getElementById('volSlider').addEventListener('input', (e) => {

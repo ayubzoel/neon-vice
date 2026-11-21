@@ -1,6 +1,6 @@
 // Neon Vice — Builder C: keyboard + touch input.
 // Keyboard: W/S forward/back, A/D turn, Shift run, E interact, H holster,
-// 1/2 weapon, M map, B phone/backpack, N mute, R reload, Space jump.
+// 1/2 weapon, M map, B backpack/phone, N mute, R reload, Space jump.
 // Touch: left stick is CAMERA-RELATIVE — stick up moves Vera away from the
 // camera (up-screen), stick right moves her to screen-right. The stick
 // vector is passed through raw (stick.x / stick.y) and main.js turns it into
@@ -159,7 +159,7 @@ export function createInput() {
     const translate = (text) => text
       .replace('Press E to ', 'Tap CAR to ')
       .replace('Tekan E untuk ', 'Ketuk CAR untuk ')
-      .replace('WASD move · Shift run · E interact · M map · B phone · H holster',
+      .replace('WASD move · Shift run · E interact · M map · B backpack · H holster',
         'Left stick to move · CAR to enter a car')
       .replace('Swimming — steer toward the shore', 'Swimming — stick toward the shore');
     const sync = () => {
