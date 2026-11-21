@@ -12,7 +12,7 @@ const http = require('http');
 
 const PORT = 8915;
 const URL = `http://localhost:${PORT}/`;
-const OUT = '/home/hatch/workspace/makefun/neon-vice-entry/screenshots';
+const OUT = '/home/hatch/workspace/makefun/neon-vice-entry/tests/evidence'; // NOT screenshots/: main.ts dossier gate allows only 3-4 files there
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function waitForServer(port, timeoutMs = 15000) {
