@@ -100,6 +100,65 @@ export function createCombat(scene, world, player, audio) {
   let lastShotAt = -99;
   let gameTime = 0;
 
+  // --- Aim mode (Builder A v4) -------------------------------------------
+  // While aiming, aim assist locks the NEAREST living shootable target
+  // (thug / police / patrol car) inside a forward cone; shots then hit
+  // that target directly instead of relying on the narrow hitscan cone.
+  // Ambient sidewalk pedestrians are NOT lockable — they have no HP.
+  let aiming = false;
+  let locked = null; // currently locked unit, or null
+  const AIM_CONE_DOT = 0.7; // ~45-degree half-angle forward cone
+  const AIM_LABEL = { thug: 'Thug', police: 'Police', policeCar: 'Patrol car' };
+
+  function acquireLock() {
+    const w = weapons[current];
+    const px = player.group.position.x;
+    const pz = player.group.position.z;
+    const fx = Math.sin(player.heading);
+    const fz = Math.cos(player.heading);
+    let best = null;
+    let bestDist = Infinity;
+    for (const e of [...enemies, ...police, ...policeCars]) {
+      if (e.dead) continue;
+      const dx = e.mesh.position.x - px;
+      const dz = e.mesh.position.z - pz;
+      const dist = Math.hypot(dx, dz);
+      if (dist > w.range) continue;
+      const dot = (dx * fx + dz * fz) / (dist || 1);
+      if (dot < AIM_CONE_DOT) continue;
+      if (dist < bestDist) { bestDist = dist; best = e; }
+    }
+    return best;
+  }
+
+  function setAiming(b) {
+    const want = !!b;
+    if (want === aiming) return;
+    aiming = want;
+    locked = want ? acquireLock() : null;
+  }
+
+  // Plain-data snapshot for the HUD lock marker + test hooks (no meshes:
+  // this crosses page.evaluate, which only carries plain data).
+  function aimInfo() {
+    if (!aiming || !locked || locked.dead) return { aiming, locked: null };
+    const px = player.group.position.x;
+    const pz = player.group.position.z;
+    const dist = Math.hypot(locked.mesh.position.x - px, locked.mesh.position.z - pz);
+    return {
+      aiming,
+      locked: {
+        kind: locked.kind,
+        label: AIM_LABEL[locked.kind] || locked.kind,
+        hp: locked.hp,
+        dist: +dist.toFixed(1),
+        x: locked.mesh.position.x,
+        y: 1.2,
+        z: locked.mesh.position.z,
+      },
+    };
+  }
+
   const weaponMeshes = {
     pistol: makeWeaponMesh('pistol'),
     smg: makeWeaponMesh('smg'),
@@ -560,6 +619,22 @@ export function createCombat(scene, world, player, audio) {
     const pz = player.group.position.z;
     const fx = Math.sin(player.heading);
     const fz = Math.cos(player.heading);
+    const mx = px + fx * 0.8; // muzzle, just ahead of Vera
+    const mz = pz + fz * 0.8;
+    // Aim-locked shot (Builder A v4): a locked target is hit directly —
+    // the tracer runs muzzle -> target chest, damage is the weapon's full
+    // damage every shot, no cone roll, no spread.
+    if (aiming && locked && !locked.dead) {
+      locked.hp -= w.damage;
+      fireTracer(mx, 1.3, mz, locked.mesh.position.x, 1.2, locked.mesh.position.z);
+      if (locked.hp <= 0) {
+        locked.dead = true;
+        locked.mesh.visible = false;
+        commitCrime(2);
+        audio.chime();
+      }
+      return true;
+    }
     let best = null;
     let bestScore = Infinity;
     for (const e of [...enemies, ...police, ...policeCars]) {
@@ -578,12 +653,17 @@ export function createCombat(scene, world, player, audio) {
     }
     if (best) {
       best.hp -= w.damage;
+      fireTracer(mx, 1.3, mz, best.mesh.position.x, 1.2, best.mesh.position.z);
       if (best.hp <= 0) {
         best.dead = true;
         best.mesh.visible = false;
         commitCrime(2);
         audio.chime();
       }
+    } else {
+      // Miss: the tracer still shows where the shot went (range end,
+      // straight ahead), so a miss reads as a miss, not a silent nothing.
+      fireTracer(mx, 1.3, mz, px + fx * w.range, 1.2, pz + fz * w.range);
     }
     return true;
   }
@@ -683,6 +763,9 @@ export function createCombat(scene, world, player, audio) {
     commitCrime,
     shoot,
     reload,
+    setAiming,
+    aimInfo,
+    get aiming() { return aiming; },
     setWanted(n) {
       wanted = Math.max(0, Math.min(CONFIG.wanted.max, n));
       lastCrimeAt = gameTime;
@@ -720,6 +803,19 @@ export function createCombat(scene, world, player, audio) {
     isReloading() { return reloadTimer > 0; },
     update(dt, t, driving) {
       gameTime = t;
+      // Aim assist (Builder A v4): re-acquire the nearest target in the
+      // forward cone every frame while aiming; drop the lock on release.
+      if (aiming) {
+        if (!locked || locked.dead) locked = acquireLock();
+        else {
+          const w = weapons[current];
+          const dx = locked.mesh.position.x - player.group.position.x;
+          const dz = locked.mesh.position.z - player.group.position.z;
+          const dist = Math.hypot(dx, dz);
+          const dot = (dx * Math.sin(player.heading) + dz * Math.cos(player.heading)) / (dist || 1);
+          if (dist > w.range * 1.2 || dot < 0.5) locked = acquireLock();
+        }
+      } else locked = null;
       fireCooldown = Math.max(0, fireCooldown - dt);
       if (reloadTimer > 0) {
         reloadTimer -= dt;

@@ -90,13 +90,68 @@ export function createUI(settings) {
     const el = $('hudGps');
     if (el) el.textContent = name ? `GPS ${name} · ${Math.round(dist)}m` : '';
   }
+  // ---- Top banner (Builder A v4) -----------------------------------------
+  // ALL tutorial/help text lives here now: the persistent controls hint
+  // AND the transient toast messages share one small strip at the TOP
+  // edge of the screen (below the HUD), so nothing ever covers the
+  // centre of the view while playing. The old centre/bottom elements
+  // (#hudMsg toast at top-centre, #hudHint bottom bar, #touchHint pill)
+  // are retired: hudMsg is gone from the HTML, hudHint/touchHint stay in
+  // the DOM hidden only because input.js still observes #hudHint to drive
+  // the touch CAR button label.
+  let bannerHint = '';
+  let toastActive = false;
+  let bannerDismissed = false;
+
+  function renderBanner() {
+    const banner = $('topBanner');
+    const text = $('bannerText');
+    if (!banner || !text) return;
+    if (bannerDismissed) {
+      banner.classList.add('hidden');
+      $('bannerShow')?.classList.remove('hidden');
+      return;
+    }
+    $('bannerShow')?.classList.add('hidden');
+    banner.classList.remove('hidden');
+    text.textContent = bannerHint;
+  }
+
+  function setBannerHint(text) {
+    bannerHint = text || '';
+    // A toast message owns the banner while it is showing; the hint
+    // returns when the toast expires (see toast()).
+    if (!toastActive) renderBanner();
+  }
+  function dismissBanner() {
+    bannerDismissed = true;
+    renderBanner();
+  }
+  function showBanner() {
+    bannerDismissed = false;
+    renderBanner();
+  }
+  function toggleBanner() {
+    if (bannerDismissed) showBanner();
+    else dismissBanner();
+  }
+
   function toast(msg, ms = 3500) {
-    const el = $('hudMsg');
-    if (!el) return;
-    el.textContent = msg;
-    el.classList.add('show');
+    // A message temporarily takes over the banner, then the hint returns.
+    // If the player dismissed the banner, the message still shows (a
+    // mission message must not be lost) and the banner hides again after.
+    const banner = $('topBanner');
+    const text = $('bannerText');
+    if (!banner || !text) return;
+    banner.classList.remove('hidden');
+    $('bannerShow')?.classList.add('hidden');
+    text.textContent = msg;
+    toastActive = true;
     if (msgTimer) clearTimeout(msgTimer);
-    msgTimer = setTimeout(() => el.classList.remove('show'), ms);
+    msgTimer = setTimeout(() => {
+      toastActive = false;
+      renderBanner();
+    }, ms);
   }
 
   // Minimap: 2D top-down, player centred, roads + water + bounds + places +
@@ -198,6 +253,8 @@ export function createUI(settings) {
   return {
     t, setLang, get lang() { return lang; },
     setMoney, setWanted, setHp, setAmmo, setObjective, setClock, setAmbient, setGps, toast,
+    setBannerHint, dismissBanner, showBanner, toggleBanner,
+    get bannerDismissed() { return bannerDismissed; },
     drawMinimap,
     showPanel(id) { $(id)?.classList.remove('hidden'); },
     hidePanel(id) { $(id)?.classList.add('hidden'); },
