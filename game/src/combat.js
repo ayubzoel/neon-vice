@@ -384,8 +384,15 @@ export function createCombat(scene, world, player, audio) {
   }
 
   function carChaseSpeed(stars) {
-    return 18 + 2 * (stars - 1); // 18 -> 26 m/s (player car 32-38: escapable)
+    // v5 item 4: 20 -> 28 m/s (was 18 -> 26). A flat-out player car
+    // (32-38 m/s) still escapes, but at city speeds the cars now close
+    // instead of watching the player drive away.
+    return 20 + 2 * (stars - 1);
   }
+
+  // v5 item 4: the player may be driving. maintainForce needs to know so
+  // it can spawn an intercept car ahead of a driven player.
+  let drivingNow = false;
 
   function spawnPoliceCar(x, z, opts = {}) {
     // Start ON a road: snap the spawn to the nearest road point so the car
@@ -419,6 +426,27 @@ export function createCombat(scene, world, player, audio) {
   // the target moved far or the car is stuck), but the car holds ~16 m
   // from the player and shoots from the lane instead of driving onto the
   // sidewalk where the player stands.
+  // Drop leading waypoints that lie BEHIND the chase: a BFS path starts
+  // at the node nearest the car, and on a long segment that node can be
+  // 50+ m behind the car while the player is ahead — the old code drove
+  // the car there first (probe: both cars drove 50 m SOUTH to node
+  // (60,0) while the player drove north, then did it again after every
+  // re-path, so they never closed). A waypoint whose direction from the
+  // car points away from the player is useless; skip it. The last
+  // waypoint is never skipped (it is the goal).
+  function trimChasePath(c, px, pz) {
+    if (!c.path || c.path.length < 2) return;
+    while (c.pathIdx < c.path.length - 1) {
+      const wp = c.path[c.pathIdx];
+      const dx1 = wp.x - c.mesh.position.x;
+      const dz1 = wp.z - c.mesh.position.z;
+      const dx2 = px - c.mesh.position.x;
+      const dz2 = pz - c.mesh.position.z;
+      if (dx1 * dx2 + dz1 * dz2 < 0) c.pathIdx += 1;
+      else break;
+    }
+  }
+
   function updatePoliceCar(c, dt, px, pz, topSpeed) {
     const dist = Math.hypot(px - c.mesh.position.x, pz - c.mesh.position.z);
     const graph = world.roadGraph;
@@ -442,6 +470,7 @@ export function createCombat(scene, world, player, audio) {
       }
       c.stuckT = 0;
     }
+    trimChasePath(c, px, pz);
     let wx = px;
     let wz = pz;
     if (c.path && c.pathIdx < c.path.length) {
@@ -449,13 +478,15 @@ export function createCombat(scene, world, player, audio) {
       wz = c.path[c.pathIdx].z;
       if (Math.hypot(wx - c.mesh.position.x, wz - c.mesh.position.z) < 5) {
         c.pathIdx += 1;
+        trimChasePath(c, px, pz);
         if (c.pathIdx < c.path.length) { wx = c.path[c.pathIdx].x; wz = c.path[c.pathIdx].z; }
       }
-    } else if (c.path && c.path.length > 0) {
-      const last = c.path[c.path.length - 1];
-      wx = last.x;
-      wz = last.z;
     }
+    // At the end of the path the car drives at the PLAYER, not at the
+    // last node: the goal node is only the node nearest the player, and
+    // the old code parked the car there while the player kept moving
+    // (the "hold ~16 m" braking below still stops it at shooting range).
+    // (wx, wz stay px, pz when pathIdx ran past the end.)
     // Hold on the road once close (speed-aware braking distance).
     const atEnd = !c.path || c.pathIdx >= c.path.length;
     const dT = Math.hypot(wx - c.mesh.position.x, wz - c.mesh.position.z);
@@ -556,8 +587,21 @@ export function createCombat(scene, world, player, audio) {
       spawnPolice(px + Math.cos(ang) * 35, pz + Math.sin(ang) * 35, { stars: wanted });
     }
     for (let i = cars.length; i < tier.cars; i += 1) {
+      // v5 item 4: cars spawn closer (40-55 m, was 60-80 m) so a driving
+      // player meets them before they fall behind. When the player is
+      // driving, the FIRST car spawns as an INTERCEPT: ~50 m ahead along
+      // the player's heading, snapped to the road by spawnPoliceCar — the
+      // player drives straight at it, so the chase is visible at once
+      // instead of starting 70 m behind a faster car.
+      const first = cars.length === 0 && i === 0;
+      if (drivingNow && first) {
+        const ax = px + Math.sin(player.heading) * 50;
+        const az = pz + Math.cos(player.heading) * 50;
+        spawnPoliceCar(ax, az, { heading: Math.atan2(px - ax, pz - az) });
+        continue;
+      }
       const ang = Math.random() * Math.PI * 2;
-      const d = 60 + Math.random() * 20;
+      const d = 40 + Math.random() * 15;
       spawnPoliceCar(px + Math.cos(ang) * d, pz + Math.sin(ang) * d);
     }
   }
@@ -803,6 +847,7 @@ export function createCombat(scene, world, player, audio) {
     isReloading() { return reloadTimer > 0; },
     update(dt, t, driving) {
       gameTime = t;
+      drivingNow = !!driving;
       // Aim assist (Builder A v4): re-acquire the nearest target in the
       // forward cone every frame while aiming; drop the lock on release.
       if (aiming) {
