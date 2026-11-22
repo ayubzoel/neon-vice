@@ -276,11 +276,11 @@ export function createPlayer(scene) {
           this.group.position.x = Math.min(clamped.x, 598);
           this.group.position.z = clamped.z;
           this.speed = swim;
-        } else if (world.collides && world.collides(nx, nz, CONFIG.player.radius)) {
+        } else if (world.collides && world.collides(nx, nz, CONFIG.player.radius, this.group.position.y)) {
           // Slide along the obstacle: try X alone, then Z alone.
-          if (!world.collides(nx, this.group.position.z, CONFIG.player.radius)) {
+          if (!world.collides(nx, this.group.position.z, CONFIG.player.radius, this.group.position.y)) {
             this.group.position.x = nx;
-          } else if (!world.collides(this.group.position.x, nz, CONFIG.player.radius)) {
+          } else if (!world.collides(this.group.position.x, nz, CONFIG.player.radius, this.group.position.y)) {
             this.group.position.z = nz;
           }
         } else {

@@ -268,31 +268,11 @@ export function createWorld(scene) {
   zebraMesh.frustumCulled = false;
   scene.add(zebraMesh);
 
-  // ---- Flyovers (Builder B v4): two decks over the z=0 arterial ---------
+  // ---- Flyovers (Builder B v4, v5: signs removed, markings + solid
+  // barriers added) ------------------------------------------------------
   // Deck + ramps are solid slabs ON the NS road (see data.js FLYOVERS for
   // the layout note). The ground road under the deck stays driveable at
-  // y=0 — only the deck footprint is elevated. Sign boards ("FLYOVER ↑")
-  // stand before each ramp so the driver can choose the deck in time.
-  function makeFlyoverSignTexture() {
-    const c = document.createElement('canvas');
-    c.width = 512;
-    c.height = 128;
-    const ctx = c.getContext('2d');
-    ctx.fillStyle = '#0b3b8f';
-    ctx.fillRect(0, 0, 512, 128);
-    ctx.strokeStyle = '#facc15';
-    ctx.lineWidth = 8;
-    ctx.strokeRect(6, 6, 500, 116);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 64px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('FLYOVER ↑', 256, 66);
-    const tex = new THREE.CanvasTexture(c);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    return tex;
-  }
-  const flyoverSignTex = makeFlyoverSignTexture();
+  // y=0 — only the deck footprint is elevated.
   {
     const H = FLYOVER.deckH;
     const RAMP = FLYOVER.rampLen;
@@ -302,13 +282,31 @@ export function createWorld(scene) {
     const slabMat = new THREE.MeshStandardMaterial({ color: 0x2e333b, roughness: 0.9, metalness: 0 });
     const edgeMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.6, metalness: 0.2 });
     const pillarMat = new THREE.MeshStandardMaterial({ color: 0x4b5563, roughness: 0.9 });
-    const postMat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.6, metalness: 0.4 });
+    // Deck markings (v5): centre dashed amber line + solid pale edge
+    // lines, like the ground roads' asphalt texture, on the flat deck top.
+    const markAmber = new THREE.MeshBasicMaterial({ color: 0xc9a227 });
+    const markPale = new THREE.MeshBasicMaterial({ color: 0xe2e8f0 });
     for (const f of FLYOVERS) {
       // Flat deck over the intersection box (z ±10), top at y = H.
       const deck = new THREE.Mesh(new THREE.BoxGeometry(FLYOVER.width, 0.6, FLYOVER.deckHalf * 2), slabMat);
       deck.position.set(f.x, H - 0.3, f.z);
       deck.frustumCulled = false;
       scene.add(deck);
+      // Deck edge lines (solid) + centre dashes (3 m dash, 3.5 m gap).
+      for (const ex of [-4.3, 4.3]) {
+        const line = new THREE.Mesh(new THREE.PlaneGeometry(0.15, FLYOVER.deckHalf * 2), markPale);
+        line.rotation.x = -Math.PI / 2;
+        line.position.set(f.x + ex, H + 0.02, f.z);
+        line.frustumCulled = false;
+        scene.add(line);
+      }
+      for (const dz of [-6.5, 0, 6.5]) {
+        const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 3), markAmber);
+        dash.rotation.x = -Math.PI / 2;
+        dash.position.set(f.x, H + 0.02, f.z + dz);
+        dash.frustumCulled = false;
+        scene.add(dash);
+      }
       // Ramps: inclined slabs, top surface 0 at |z| = 60, H at |z| = 10.
       for (const side of [-1, 1]) {
         const ramp = new THREE.Mesh(new THREE.BoxGeometry(FLYOVER.width, 0.6, slopeLen), slabMat);
@@ -336,25 +334,6 @@ export function createWorld(scene) {
         pillar.position.set(f.x + px, H / 2, f.z + pz);
         pillar.frustumCulled = false;
         scene.add(pillar);
-      }
-      // Sign boards before each ramp approach (|z| = 63), facing the
-      // oncoming driver, on two posts.
-      for (const side of [-1, 1]) {
-        const sz = f.z + side * 63;
-        for (const px of [-2.2, 2.2]) {
-          const post = new THREE.Mesh(new THREE.BoxGeometry(0.25, 3.6, 0.25), postMat);
-          post.position.set(f.x + px, 1.8, sz);
-          post.frustumCulled = false;
-          scene.add(post);
-        }
-        const sign = new THREE.Mesh(
-          new THREE.PlaneGeometry(6, 1.5),
-          new THREE.MeshBasicMaterial({ map: flyoverSignTex, side: THREE.DoubleSide }),
-        );
-        sign.position.set(f.x, 4.3, sz);
-        sign.rotation.y = side > 0 ? 0 : Math.PI; // face the approaching driver
-        sign.frustumCulled = false;
-        scene.add(sign);
       }
     }
   }
@@ -951,10 +930,34 @@ export function createWorld(scene) {
     return x > WATER_X0 - 2 && x <= 600 && z >= -D / 2 && z <= D / 2;
   }
 
-  function collides(x, z, r) {
+  // Flyover deck/ramp edge barriers, as 2D rects matching the yellow
+  // barrier boxes (0.3 m thick at x = f.x ± (W2 - 0.15), z ±60 covering
+  // deck + both ramps). HEIGHT-GATED: they only block callers that pass
+  // their y and are clearly elevated (y > 1.5). Ground traffic and
+  // pedestrians under the deck pass at y = 0 and are never blocked — a
+  // plain 2D collider here would wall off the under-flyover turns
+  // (item 1d). A jumping player peaks at ~1.1 m, so 1.5 keeps jumps
+  // under the deck free too. Callers that don't pass y default to 0
+  // (ground) and keep the old behaviour.
+  const flyoverBarriers = [];
+  for (const f of FLYOVERS) {
+    const W2 = FLYOVER.width / 2;
+    const z0 = f.z - (FLYOVER.deckHalf + FLYOVER.rampLen);
+    const z1 = f.z + (FLYOVER.deckHalf + FLYOVER.rampLen);
+    // Barrier box footprint: 0.3 m thick, centred at f.x ± (W2 - 0.15).
+    flyoverBarriers.push({ minX: f.x + W2 - 0.3, maxX: f.x + W2, minZ: z0, maxZ: z1 });
+    flyoverBarriers.push({ minX: f.x - W2, maxX: f.x - W2 + 0.3, minZ: z0, maxZ: z1 });
+  }
+
+  function collides(x, z, r, y = 0) {
     if (x > WATER_X0 - 2) return true; // water is not walkable
     for (const c of colliders) {
       if (x + r > c.minX && x - r < c.maxX && z + r > c.minZ && z - r < c.maxZ) return true;
+    }
+    if (y > 1.5) {
+      for (const b of flyoverBarriers) {
+        if (x + r > b.minX && x - r < b.maxX && z + r > b.minZ && z - r < b.maxZ) return true;
+      }
     }
     return false;
   }

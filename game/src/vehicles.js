@@ -173,13 +173,16 @@ export function createVehicles(scene, world) {
   // footprint instead: centre + nose + tail, each r=1.0 (the car's half
   // width). The car now bumps while its body is still clear of the wall,
   // so reversing out is always possible. Boats keep the water-rect check.
-  function carCollides(x, z, heading) {
+  // v5: y threads through so the flyover deck barriers (world.collides
+  // 4th arg) block an elevated car but never ground traffic under the
+  // deck. Boats pass no y (water level, barriers inactive).
+  function carCollides(x, z, heading, y = 0) {
     if (!world.collides) return false;
     const sx = Math.sin(heading);
     const sz = Math.cos(heading);
-    if (world.collides(x, z, 1.0)) return true;
-    if (world.collides(x + sx * 1.7, z + sz * 1.7, 1.0)) return true;
-    if (world.collides(x - sx * 1.7, z - sz * 1.7, 1.0)) return true;
+    if (world.collides(x, z, 1.0, y)) return true;
+    if (world.collides(x + sx * 1.7, z + sz * 1.7, 1.0, y)) return true;
+    if (world.collides(x - sx * 1.7, z - sz * 1.7, 1.0, y)) return true;
     return false;
   }
 
@@ -223,7 +226,7 @@ export function createVehicles(scene, world) {
     // collider, keep the old heading — the car can still reverse out and
     // turn once clear. Boats skip this (water-rect check below).
     const newHeading = v.heading + steer * (isBoat ? 1.1 : 1.9) * dt;
-    if (isBoat || !world.collides || !carCollides(v.mesh.position.x, v.mesh.position.z, newHeading)) {
+    if (isBoat || !world.collides || !carCollides(v.mesh.position.x, v.mesh.position.z, newHeading, v.mesh.position.y)) {
       v.heading = newHeading;
     }
     const nx = v.mesh.position.x + Math.sin(v.heading) * v.speed * dt;
@@ -232,7 +235,7 @@ export function createVehicles(scene, world) {
       const w = CONFIG.water;
       v.mesh.position.x = Math.max(w.x0 + 3, Math.min(w.x1 - 3, nx));
       v.mesh.position.z = Math.max(w.z0 + 3, Math.min(w.z1 - 3, nz));
-    } else if (world.collides && carCollides(nx, nz, v.heading)) {
+    } else if (world.collides && carCollides(nx, nz, v.heading, v.mesh.position.y)) {
       v.speed *= -0.25; // bump: kill speed, small bounce
     } else {
       const clamped = world.clamp(nx, nz);
@@ -280,7 +283,7 @@ export function createVehicles(scene, world) {
         v.reverse -= dt;
         const bx = v.mesh.position.x - Math.sin(v.heading) * 4 * dt;
         const bz = v.mesh.position.z - Math.cos(v.heading) * 4 * dt;
-        if (!world.collides || !world.collides(bx, bz, 1.4)) {
+        if (!world.collides || !world.collides(bx, bz, 1.4, v.mesh.position.y)) {
           v.mesh.position.x = bx;
           v.mesh.position.z = bz;
         } else {
@@ -363,7 +366,7 @@ export function createVehicles(scene, world) {
       if (cap < Infinity) v.speed = Math.min(v.speed, cap);
       const nx = v.mesh.position.x + Math.sin(v.heading) * v.speed * dt;
       const nz = v.mesh.position.z + Math.cos(v.heading) * v.speed * dt;
-      if (world.collides && world.collides(nx, nz, 1.4)) {
+      if (world.collides && world.collides(nx, nz, 1.4, v.mesh.position.y)) {
         v.reverse = 0.8; // back out of the wedge, then take a fresh route
         v.speed = -4;
         repathStock(v);
