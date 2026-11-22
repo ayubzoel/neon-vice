@@ -370,12 +370,39 @@ export function createWorld(scene) {
     }
   }
 
-  // Road-surface height (Builder B v4): 0 on the ground, the ramp/deck
-  // profile inside a flyover corridor. currentY is the caller's present
-  // height — it disambiguates the deck box (|z| <= 10), where BOTH levels
-  // exist: already up there (> 3 m) stays up, on the ground stays down.
-  // Ramp zones return the slope height unconditionally: the ramp IS the
-  // road surface there, so anything on it climbs/descends with it.
+  // Road-surface height (Builder B v4, v5 item 1d fix): 0 on the ground,
+  // the ramp/deck profile inside a flyover corridor. currentY is the
+  // caller's present height — it disambiguates the deck box (|z| <= 10),
+  // where BOTH levels exist: already up there (> 3 m) stays up, on the
+  // ground stays down.
+  // RAMP ZONES ARE ENTRY-AWARE (v5 item 1d): the old code returned the
+  // slope height unconditionally for any (x, z) with |x - f.x| <= 5.
+  // The ramp slab is 10 m wide but the NS road is 12 m wide, so the slab
+  // covers both turn lanes: a car turning left/right at the intersection
+  // (arc ends x ≈ f.x - 1.7..-3.9, z ≈ ±5) drives south/north straight
+  // into the ramp footprint at |z| > 10, where the slope height jumps
+  // 0 -> ~5.9 m in one step. The y-lerp hauled it onto the top edge of
+  // the ramp, and once y > 1.5 the height-gated deck-edge barrier
+  // collider (x = f.x - 5..-4.7) froze it: every move/rotation check
+  // failed, so the car sat wedged at (f.x - 3.9, 6, ±10) and no escape
+  // (steer + gas, reverse) could free it. Measured trap: left turn at
+  // both flyovers ended (296.1, 6.0, 10.2) / (55.9, 6.0, 10.3).
+  // The ramp slab is only 0.6 m thick with open space underneath (at
+  // z = 15 the slab underside is ~4.8 m up; a car is ~1.5 m tall), so
+  // ground traffic can pass UNDER it exactly like under the flat deck.
+  // A caller is only lifted onto the ramp when the slope height is
+  // close above its present height (STEP = 0.6 m): a car genuinely
+  // climbing the ramp enters at the foot (|z| = 60, height 0) and the
+  // slope rises 0.12 m per metre, so its per-frame height gain is
+  // ~0.02-0.08 m and the lerp tracks it with <= ~0.3 m lag even at
+  // 38 m/s — well inside STEP. A turning car entering from the side
+  // faces a ~5.4-5.9 m jump, so it stays at its present height (y = 0)
+  // and drives under the ramp, on the road, instead of onto the deck.
+  // Side effect, accepted: within ~5 m of a ramp foot the slope height
+  // is < STEP, so a ground car there rides a <= 0.6 m hump over the
+  // ramp toe and settles back to 0 — the toe is the slab meeting the
+  // road, so that is driving over it, not clipping through it.
+  const FLYOVER_STEP = 0.6;
   function flyoverHeightAt(x, z, currentY = 0) {
     const H = FLYOVER.deckH;
     const RAMP = FLYOVER.rampLen;
@@ -385,12 +412,13 @@ export function createWorld(scene) {
       const dz = z - f.z;
       const adz = Math.abs(dz);
       if (adz <= FLYOVER.deckHalf) return currentY > 3 ? H : 0;
+      let h = -1;
       if (dz < -FLYOVER.deckHalf && dz >= -(FLYOVER.deckHalf + RAMP)) {
-        return H * (dz + FLYOVER.deckHalf + RAMP) / RAMP;
+        h = H * (dz + FLYOVER.deckHalf + RAMP) / RAMP;
+      } else if (dz > FLYOVER.deckHalf && dz <= FLYOVER.deckHalf + RAMP) {
+        h = H * (FLYOVER.deckHalf + RAMP - dz) / RAMP;
       }
-      if (dz > FLYOVER.deckHalf && dz <= FLYOVER.deckHalf + RAMP) {
-        return H * (FLYOVER.deckHalf + RAMP - dz) / RAMP;
-      }
+      if (h >= 0) return h - currentY > FLYOVER_STEP ? currentY : h;
     }
     return 0;
   }
