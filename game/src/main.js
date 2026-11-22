@@ -16,7 +16,7 @@ import { createAmbient } from './ambient.js';
 import { createCombat } from './combat.js';
 import { createMissions, MISSION_DEFS } from './missions.js';
 import { createShops, SHOPS } from './shops.js';
-import { createSave } from './save.js';
+import { createSave, loadSettings, persistSettings } from './save.js';
 import { createMap } from './map.js';
 import { createUI } from './ui.js';
 
@@ -62,7 +62,9 @@ function normalizeWorld(raw) {
       if (raw.clamp) return raw.clamp(x, z);
       return { x: Math.max(-halfW, Math.min(halfW, x)), z: Math.max(-halfD, Math.min(halfD, z)) };
     },
-    collides: typeof raw.collides === 'function' ? (x, z, r) => raw.collides(x, z, r) : null,
+    // v5: forward y so the flyover deck barriers (raw.collides 4th arg)
+    // block an elevated caller but never ground traffic under the deck.
+    collides: typeof raw.collides === 'function' ? (x, z, r, y = 0) => raw.collides(x, z, r, y) : null,
     isInWater: typeof raw.isInWater === 'function'
       ? (x, z) => raw.isInWater(x, z)
       : (x, z) => x > CONFIG.water.x0 - 2,
@@ -99,7 +101,12 @@ const vehicles = createVehicles(scene, world);
 const ambient = createAmbient(scene, world, vehicles, { isDriven: (v) => v === driving });
 const combat = createCombat(scene, world, player, audio);
 
-const settings = { lang: 'en', volume: 0.7, musicVolume: 0.8, sfxVolume: 0.9, muted: false, quality: softwareGL ? 'low' : 'high' };
+const settings = loadSettings({ quality: softwareGL ? 'low' : 'high' });
+function saveSettings() { persistSettings(settings); }
+audio.setVolume(settings.volume);
+audio.setMusicVolume(settings.musicVolume);
+audio.setSfxVolume(settings.sfxVolume);
+audio.setMuted(settings.muted);
 const ui = createUI(settings);
 const mapSys = createMap(world);
 
@@ -246,10 +253,11 @@ function placeCamera(dtReal = 0.016) {
   // Consume the orbit drag (empty-screen swipe / mouse drag).
   const drag = input.consumeCamDrag ? input.consumeCamDrag() : { dx: 0, dy: 0 };
   if (drag.dx !== 0 || drag.dy !== 0) {
-    camYawTarget += drag.dx * 0.005; // ~1250 px per full turn
-    camPitchTarget = Math.max(CAM_PITCH_MIN, Math.min(CAM_PITCH_MAX, camPitchTarget - drag.dy * 0.004));
+    const sens = settings.camSensitivity ?? 1; // v5: camera sensitivity setting
+    camYawTarget += drag.dx * 0.005 * sens; // ~1250 px per full turn at 1.0×
+    camPitchTarget = Math.max(CAM_PITCH_MIN, Math.min(CAM_PITCH_MAX, camPitchTarget - drag.dy * 0.004 * sens));
     camHoldUntil = performance.now() + 2500;
-  } else if (performance.now() > camHoldUntil) {
+  } else if (performance.now() > camHoldUntil && settings.camFollow !== false) {
     // Ease the target back behind the heading — only while moving, and
     // never while the stick is steering on foot (frozen camera, see above).
     const stick = !driving && input.read().stick;
@@ -325,7 +333,14 @@ function applyLoadedSave(data) {
   if (typeof data.musicVolume === 'number') { settings.musicVolume = data.musicVolume; audio.setMusicVolume(data.musicVolume); }
   if (typeof data.sfxVolume === 'number') { settings.sfxVolume = data.sfxVolume; audio.setSfxVolume(data.sfxVolume); }
   if (typeof data.muted === 'boolean') { settings.muted = data.muted; audio.setMuted(data.muted); }
-  if (data.quality) settings.quality = data.quality;
+  if (data.quality) {
+    settings.quality = data.quality;
+    autoDegraded = false; // a loaded choice renders as chosen until FPS says otherwise
+    lowFpsStreak = 0;
+  }
+  if (typeof data.camSensitivity === 'number') settings.camSensitivity = Math.max(0.5, Math.min(2, data.camSensitivity));
+  if (typeof data.camFollow === 'boolean') settings.camFollow = data.camFollow;
+  saveSettings(); // a loaded save refreshes the persisted settings too
   applyQuality();
   syncSettingsInputs();
   ui.setMoney(money);
@@ -344,6 +359,33 @@ function syncSettingsInputs() {
   if (q) q.value = settings.quality;
   const l = document.getElementById('langSel');
   if (l) l.value = settings.lang;
+  const sens = document.getElementById('sensSlider');
+  if (sens) sens.value = settings.camSensitivity ?? 1;
+  const sensVal = document.getElementById('sensVal');
+  if (sensVal) sensVal.textContent = `${Number(settings.camSensitivity ?? 1).toFixed(1)}×`;
+  const fol = document.getElementById('followChk');
+  if (fol) fol.checked = settings.camFollow !== false;
+}
+
+// ---- v5 loading screen flow ----
+// #startScreen has three views; exactly ONE is visible at a time:
+// #startMain (Start Game + Settings only), #startPlay (New / Continue /
+// Back), #startConfirm (overwrite-save confirmation for New Game).
+function showStartView(view) {
+  for (const [id, name] of [['startMain', 'main'], ['startPlay', 'play'], ['startConfirm', 'confirm']]) {
+    document.getElementById(id)?.classList.toggle('hidden', name !== view);
+  }
+  if (view === 'play') refreshContinueState();
+}
+function refreshContinueState() {
+  const has = save.exists();
+  const btn = document.getElementById('btnContinue');
+  if (btn) btn.disabled = !has;
+  const note = document.getElementById('continueNote');
+  if (note) {
+    note.hidden = has;
+    if (!has) note.textContent = ui.t('noSave');
+  }
 }
 
 function startGame(fromSave) {
@@ -383,7 +425,12 @@ function applyQuality() {
   // Low on a software renderer also renders at 0.75x backing resolution
   // (upscaled by CSS): SwiftShader is fill-rate bound, so ~44% fewer
   // fragments is the cheapest real FPS win. Real GPUs keep full res.
-  const ratio = settings.quality === 'low'
+  // v5: the RENDER quality is the user's choice unless auto-degrade kicked
+  // in (autoDegraded) — settings.quality itself is never rewritten by the
+  // degrader, so a later saveSettings() cannot silently store 'low' over
+  // the player's chosen High.
+  const effQuality = autoDegraded ? 'low' : settings.quality;
+  const ratio = effQuality === 'low'
     ? (softwareGL ? 0.75 : 1)
     : Math.min(window.devicePixelRatio || 1, 2);
   renderer.setPixelRatio(ratio);
@@ -983,9 +1030,10 @@ function frame(now) {
       lowFpsStreak += 1;
       if (lowFpsStreak >= 4) {
         autoDegraded = true;
-        settings.quality = 'low';
-        const sel = document.getElementById('qualitySel');
-        if (sel) sel.value = 'low';
+        // Render only: settings.quality (the player's choice, and what
+        // gets persisted) stays 'high'. The old code wrote 'low' into
+        // settings here, so the next saveSettings() overwrote High in
+        // localStorage and the choice never survived a reload.
         applyQuality();
         ui.toast('Graphics auto-set to Low for smooth play');
       }
@@ -1014,7 +1062,8 @@ function frame(now) {
         speed: driving ? Math.abs(driving.speed) : player.speed,
         mission: missions.status, missionId: missions.currentDef()?.id ?? null,
         driving: !!driving, hour: weather.hour, phase: weather.phaseName(), raining: weather.raining,
-        quality: settings.quality, softwareGL, swimming: player.swimming,
+        quality: settings.quality, renderQuality: autoDegraded ? 'low' : settings.quality, softwareGL, swimming: player.swimming,
+        settings: { ...settings }, saveExists: save.exists(),
         ambient: ambient.stats(),
         drawCalls: renderer.info.render.calls,
         camYaw: +camYaw.toFixed(3), camPitch: +camPitch.toFixed(3),
@@ -1127,6 +1176,13 @@ function frame(now) {
         // Test hook only: raise the substep budget so game time runs faster
         // than real time under SwiftShader. Shipped default is 8.
         setStepBudget: (n) => { stepBudget = Math.max(1, Math.min(60, n | 0)); },
+        // Test hooks (v5): loading-screen flow + settings, without DOM clicks.
+        settings: () => ({ ...settings }),
+        saveExists: () => save.exists(),
+        startGame: (fromSave) => startGame(!!fromSave),
+        showStartView: (v) => showStartView(v),
+        openSettings: () => openSettings(),
+        closeSettings: () => closeSettings(),
         // Test hooks (Builder B v4): free camera orbit + flyovers.
         // getCameraOrbit: live + target yaw/pitch (rad) and follow-hold ms.
         // setCameraOrbit(yaw, pitch): jump the orbit (target + live) and
@@ -1207,13 +1263,43 @@ window.addEventListener('pointerup', (e) => {
   if (e.pointerType === 'mouse' && e.button === 0) mouseDown = false;
 });
 
-document.getElementById('btnNew').addEventListener('click', () => startGame(false));
+document.getElementById('btnPlay').addEventListener('click', () => showStartView('play'));
+document.getElementById('btnBackToStart').addEventListener('click', () => showStartView('main'));
+document.getElementById('btnNew').addEventListener('click', () => {
+  // New Game with an existing save asks first — never silently wipes it.
+  if (save.exists()) showStartView('confirm');
+  else startGame(false);
+});
+document.getElementById('btnConfirmNew').addEventListener('click', () => {
+  save.clear(); // confirmed New Game wipes the old save: Continue must not resurrect it
+  startGame(false);
+});
+document.getElementById('btnCancelNew').addEventListener('click', () => showStartView('play'));
 document.getElementById('btnContinue').addEventListener('click', () => startGame(true));
 document.getElementById('btnSettings').addEventListener('click', openSettings);
 document.getElementById('btnCloseSettings').addEventListener('click', closeSettings);
 document.getElementById('btnSaveNow').addEventListener('click', () => {
+  saveSettings(); // settings persist even if the game save cannot be written
   if (save.save()) ui.toast(ui.t('saved'));
   else ui.toast('Save failed — storage unavailable.');
+});
+document.getElementById('btnLoadSave').addEventListener('click', () => {
+  if (!save.exists()) { ui.toast(ui.t('noSaveToLoad')); return; }
+  const data = save.load();
+  if (!data) { ui.toast(ui.t('noSaveToLoad')); return; }
+  if (state === 'playing') { applyLoadedSave(data); ui.toast(ui.t('loadedSave')); }
+  else startGame(true);
+});
+document.getElementById('btnResetSave').addEventListener('click', () => {
+  document.getElementById('resetConfirm').classList.remove('hidden');
+});
+document.getElementById('btnCancelReset').addEventListener('click', () => {
+  document.getElementById('resetConfirm').classList.add('hidden');
+});
+document.getElementById('btnConfirmReset').addEventListener('click', () => {
+  save.clear();
+  ui.toast(ui.t('progressDeleted'));
+  window.location.reload(); // back to the loading screen, with no Continue
 });
 document.getElementById('btnCloseShop').addEventListener('click', closeShop);
 document.getElementById('btnClosePhone').addEventListener('click', closePhone);
@@ -1282,35 +1368,57 @@ document.getElementById('mapCanvas').addEventListener('click', (e) => {
 document.getElementById('volSlider').addEventListener('input', (e) => {
   settings.volume = Number(e.target.value);
   audio.setVolume(settings.volume);
+  saveSettings();
 });
 document.getElementById('musicSlider').addEventListener('input', (e) => {
   settings.musicVolume = Number(e.target.value);
   audio.setMusicVolume(settings.musicVolume);
+  saveSettings();
 });
 document.getElementById('sfxSlider').addEventListener('input', (e) => {
   settings.sfxVolume = Number(e.target.value);
   audio.setSfxVolume(settings.sfxVolume);
+  saveSettings();
 });
 document.getElementById('muteChk').addEventListener('change', (e) => {
   settings.muted = e.target.checked;
   audio.setMuted(settings.muted);
+  saveSettings();
 });
 document.getElementById('qualitySel').addEventListener('change', (e) => {
   settings.quality = e.target.value;
+  autoDegraded = false; // explicit choice: render what the player picked
+  lowFpsStreak = 0;
   applyQuality();
+  saveSettings();
+});
+document.getElementById('sensSlider').addEventListener('input', (e) => {
+  settings.camSensitivity = Number(e.target.value);
+  const v = document.getElementById('sensVal');
+  if (v) v.textContent = `${settings.camSensitivity.toFixed(1)}×`;
+  saveSettings();
+});
+document.getElementById('followChk').addEventListener('change', (e) => {
+  settings.camFollow = e.target.checked;
+  saveSettings();
 });
 document.getElementById('langSel').addEventListener('change', (e) => {
   ui.setLang(e.target.value);
+  saveSettings();
 });
 
-// Continue button only when a save exists.
-if (save.exists()) {
-  document.getElementById('btnContinue').classList.remove('hidden');
-}
+// Loading screen starts on its main view (Start Game + Settings only).
+showStartView('main');
 
 applyQuality();
 placeCamera();
 ui.setMoney(money);
 ui.setLang(settings.lang);
 syncSettingsInputs();
+// v5: ?autostart=new|continue boots straight into the game (debug/test
+// path — the loading screen stays the default for real players, and the
+// NEON_VICE debug API is live either way from the first frame).
+const autostart = new URLSearchParams(window.location.search).get('autostart');
+if (autostart === 'new') startGame(false);
+else if (autostart === 'continue' && save.exists()) startGame(true);
 requestAnimationFrame(frame);
