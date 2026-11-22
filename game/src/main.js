@@ -864,7 +864,6 @@ function step(dt) {
 
 // ---- HUD ----
 let hudTimer = 0;
-let minimapTimer = 0;
 let lowFpsStreak = 0;
 let autoDegraded = false;
 function updateHud(dt) {
@@ -920,21 +919,9 @@ function updateHud(dt) {
   }
   hint.textContent = hintText;
   ui.setBannerHint(translateHint(hintText));
-  // Minimap (throttled: redrawn every ~0.36 s, not every HUD tick).
-  minimapTimer += dt;
-  if (minimapTimer >= 0.36) {
-    minimapTimer = 0;
-    ui.drawMinimap(
-      document.getElementById('minimap'),
-      p, player.heading,
-      missions.stageTarget(),
-      Object.values(CONFIG.places),
-      mapSys.gpsTarget,
-      world.roadGraph ? world.roadGraph.segments : null,
-    );
-  }
   // Map overlay redraw (pass the live mission target for its map icon, plus
   // the ambient pedestrians + traffic so the map shows the living city).
+  // (The minimap no longer lives here — see frame(), v5 item 3.)
   if (mapSys.isOpen) {
     mapSys.draw(document.getElementById('mapCanvas'), p, player.heading, missions.stageTarget(), {
       pedestrians: ambient.pedestrians,
@@ -964,6 +951,23 @@ function frame(now) {
   updateAimOverlay();
   renderer.render(scene, camera);
   updateHud(dtReal);
+  // Minimap realtime (v5 item 3): redrawn EVERY rendered frame with the
+  // live player position — never throttled. The old code redrew it at most
+  // every 0.36 s of accumulated dt inside updateHud, and dt is clamped to
+  // 0.12 s/frame, so at ~2 FPS (SwiftShader) the minimap only refreshed
+  // every ~1.5-1.8 s of wall clock while the car kept moving: the arrow,
+  // roads and GPS route visibly lagged behind the player. The draw is
+  // cheap (150x150 canvas, ~123 road segments), so per-frame is affordable.
+  // (The full-screen map stays in updateHud: it pauses the game while open,
+  // so the player cannot move under it.)
+  ui.drawMinimap(
+    document.getElementById('minimap'),
+    player.group.position, player.heading,
+    missions.stageTarget(),
+    Object.values(CONFIG.places),
+    mapSys.gpsTarget,
+    world.roadGraph ? world.roadGraph.segments : null,
+  );
 
   // FPS from unclamped wall-clock frames, not the clamped dt.
   fpsFrames += 1;
