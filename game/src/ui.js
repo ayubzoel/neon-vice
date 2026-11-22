@@ -174,7 +174,7 @@ export function createUI(settings) {
 
   // Minimap: 2D top-down, player centred, roads + water + bounds + places +
   // objective beacon. segments: roadGraph.segments [{ax,az,bx,bz}] or null.
-  function drawMinimap(canvas, playerPos, heading, beaconPos, places, gpsTarget, segments) {
+  function drawMinimap(canvas, playerPos, heading, beaconPos, places, gpsTarget, segments, flyovers) {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     const S = canvas.width;
@@ -215,6 +215,17 @@ export function createUI(settings) {
       for (let gz = -450; gz <= 450; gz += 120) {
         const [x1, y1] = toMini(-600, gz);
         const [x2, y2] = toMini(600, gz);
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      }
+    }
+    // Flyover decks (v6): amber strip along the NS road at each flyover
+    // (ramps + deck), so the elevated lanes read on the minimap too.
+    if (flyovers && flyovers.length) {
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 3;
+      for (const f of flyovers) {
+        const [x1, y1] = toMini(f.x, f.z - 60);
+        const [x2, y2] = toMini(f.x, f.z + 60);
         ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
       }
     }

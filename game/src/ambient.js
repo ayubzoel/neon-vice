@@ -449,8 +449,18 @@ export function createAmbient(scene, world, vehicles, opts = {}) {
       else if (!repathCar(v)) { v.wait = 1; return; }
     }
     const target = v.path[v.pathIndex];
-    const dx = target.x - v.mesh.position.x;
-    const dz = target.z - v.mesh.position.z;
+    // v6: at a flyover intersection steer for the lane the car must use
+    // (world.laneTarget: flyover lane straight over, surface lane to
+    // turn). The red-light check still uses the raw node — except a
+    // straight NS crossing passes OVER the intersection, so it never
+    // meets the signal (viaFlyover skips the hold).
+    const prev = v.pathIndex > 0 ? v.path[v.pathIndex - 1] : null;
+    const next = v.pathIndex + 1 < v.path.length ? v.path[v.pathIndex + 1] : null;
+    const steer = world.laneTarget
+      ? world.laneTarget(target, prev, next)
+      : { x: target.x, z: target.z, viaFlyover: false };
+    const dx = steer.x - v.mesh.position.x;
+    const dz = steer.z - v.mesh.position.z;
     const dist = Math.hypot(dx, dz);
     // Red light: the next path node is a signalised arterial intersection
     // and the light for this car's travel axis is red — stop before the
@@ -458,7 +468,7 @@ export function createAmbient(scene, world, vehicles, opts = {}) {
     // The state comes from the same 20 s cycle as the visual heads.
     let hold = false;
     let cap = Infinity;
-    if (graph.arterialNodeNear) {
+    if (graph.arterialNodeNear && !steer.viaFlyover) {
       const node = graph.arterialNodeNear(target.x, target.z, 3);
       if (node && dist < 22) {
         const axis = Math.abs(dx) > Math.abs(dz) ? 'EW' : 'NS';

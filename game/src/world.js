@@ -301,10 +301,16 @@ export function createWorld(scene) {
   scene.add(zebraMesh);
 
   // ---- Flyovers (Builder B v4, v5: signs removed, markings + solid
-  // barriers added) ------------------------------------------------------
+  // barriers added; v6: 4 lanes 2 directions, deck narrowed to the two
+  // flyover lanes only) --------------------------------------------------
   // Deck + ramps are solid slabs ON the NS road (see data.js FLYOVERS for
   // the layout note). The ground road under the deck stays driveable at
-  // y=0 — only the deck footprint is elevated.
+  // y=0 — only the deck footprint is elevated. The surface turn lanes
+  // run OUTSIDE the deck (x = f.x ± 3..6), so a turning car never meets
+  // the ramp at all. No support pillars under the deck: every point
+  // under it is a driving lane (EW road below, flyover lanes above), so
+  // a pillar would stand in traffic — the deck reads as one continuous
+  // beam held by its two ramp slabs.
   {
     const H = FLYOVER.deckH;
     const RAMP = FLYOVER.rampLen;
@@ -313,11 +319,45 @@ export function createWorld(scene) {
     const slopeAng = Math.atan2(H, RAMP);
     const slabMat = new THREE.MeshStandardMaterial({ color: 0x2e333b, roughness: 0.9, metalness: 0 });
     const edgeMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.6, metalness: 0.2 });
-    const pillarMat = new THREE.MeshStandardMaterial({ color: 0x4b5563, roughness: 0.9 });
     // Deck markings (v5): centre dashed amber line + solid pale edge
     // lines, like the ground roads' asphalt texture, on the flat deck top.
     const markAmber = new THREE.MeshBasicMaterial({ color: 0xc9a227 });
     const markPale = new THREE.MeshBasicMaterial({ color: 0xe2e8f0 });
+    // Ground-lane paint (v6): a flat pale plane / arrowhead helper.
+    // Roads sit at y=0.05, zebras at 0.06 — paint floats at 0.10 so it
+    // never z-fights either.
+    const arrowHeadGeo = (() => {
+      const s = new THREE.Shape();
+      s.moveTo(0, 1.1); s.lineTo(-0.65, 0); s.lineTo(0.65, 0); s.closePath();
+      const g = new THREE.ShapeGeometry(s);
+      g.rotateX(-Math.PI / 2); // tip points -z; mesh.rotation.y aims it
+      return g;
+    })();
+    function flatMark(geo, x, y, z, rotY = 0) {
+      const m = new THREE.Mesh(geo, markPale);
+      if (rotY) m.rotation.y = rotY;
+      m.position.set(x, y, z);
+      m.frustumCulled = false;
+      scene.add(m);
+      return m;
+    }
+    function flatPlane(w, l, x, z) {
+      const g = new THREE.PlaneGeometry(w, l);
+      g.rotateX(-Math.PI / 2);
+      return flatMark(g, x, 0.10, z);
+    }
+    // Straight-ahead arrow, centred at (cx, cz), pointing dir (+1 = +z
+    // south, -1 = -z north). Shaft + head, ~3.6 m long.
+    function straightArrow(cx, cz, dir) {
+      flatPlane(0.35, 2.4, cx, cz - dir * 0.55);
+      flatMark(arrowHeadGeo, cx, 0.10, cz + dir * 0.7, dir > 0 ? Math.PI : 0);
+    }
+    // Turn arrow (left OR right): horizontal bar with a head at each end.
+    function turnArrow(cx, cz) {
+      flatPlane(2.4, 0.35, cx, cz);
+      flatMark(arrowHeadGeo, cx + 0.15, 0.10, cz, -Math.PI / 2); // head +x
+      flatMark(arrowHeadGeo, cx - 0.15, 0.10, cz, Math.PI / 2); // head -x
+    }
     for (const f of FLYOVERS) {
       // Flat deck over the intersection box (z ±10), top at y = H.
       const deck = new THREE.Mesh(new THREE.BoxGeometry(FLYOVER.width, 0.6, FLYOVER.deckHalf * 2), slabMat);
@@ -325,7 +365,7 @@ export function createWorld(scene) {
       deck.frustumCulled = false;
       scene.add(deck);
       // Deck edge lines (solid) + centre dashes (3 m dash, 3.5 m gap).
-      for (const ex of [-4.3, 4.3]) {
+      for (const ex of [-W2 + 0.45, W2 - 0.45]) {
         const line = new THREE.Mesh(new THREE.PlaneGeometry(0.15, FLYOVER.deckHalf * 2), markPale);
         line.rotation.x = -Math.PI / 2;
         line.position.set(f.x + ex, H + 0.02, f.z);
@@ -359,13 +399,25 @@ export function createWorld(scene) {
           scene.add(rampBar);
         }
       }
-      // Support pillars under the deck ends, on the sidewalk edge
-      // (|z| = 9, clear of the 12 m road) so ground traffic passes under.
-      for (const [px, pz] of [[-3.5, -9], [3.5, -9], [-3.5, 9], [3.5, 9]]) {
-        const pillar = new THREE.Mesh(new THREE.BoxGeometry(1.2, H, 1.2), pillarMat);
-        pillar.position.set(f.x + px, H / 2, f.z + pz);
-        pillar.frustumCulled = false;
-        scene.add(pillar);
+      // Ground lane paint (v6): solid divider between the flyover lane
+      // and the turn lane on each side (broken only across the
+      // intersection box, where turns happen), a straight arrow on each
+      // flyover-lane approach and a left-or-right arrow on each
+      // turn-lane approach, 15 m before the ramp foot (|z| = 75).
+      // Left-hand traffic: southbound (+z) lanes on the +x side,
+      // northbound (-z) lanes on the -x side.
+      for (const side of [-1, 1]) {
+        for (const [z0, z1] of [[-75, -10], [10, 75]]) {
+          const g = new THREE.PlaneGeometry(0.15, z1 - z0);
+          g.rotateX(-Math.PI / 2);
+          flatMark(g, f.x + side * W2, 0.10, (z0 + z1) / 2);
+        }
+        // Southbound approach (from the north, z = -75): flyover lane
+        // x = f.x + 1.5 straight, turn lane x = f.x + 4.5 turns.
+        // Northbound approach (from the south, z = +75): mirrored.
+        const s = side; // +1: southbound side (+x); -1: northbound (-x)
+        straightArrow(f.x + s * FLYOVER.flyLaneX, -s * 75, s);
+        turnArrow(f.x + s * FLYOVER.turnLaneX, -s * 75);
       }
     }
   }
@@ -377,16 +429,14 @@ export function createWorld(scene) {
   // ground stays down.
   // RAMP ZONES ARE ENTRY-AWARE (v5 item 1d): the old code returned the
   // slope height unconditionally for any (x, z) with |x - f.x| <= 5.
-  // The ramp slab is 10 m wide but the NS road is 12 m wide, so the slab
-  // covers both turn lanes: a car turning left/right at the intersection
-  // (arc ends x ≈ f.x - 1.7..-3.9, z ≈ ±5) drives south/north straight
-  // into the ramp footprint at |z| > 10, where the slope height jumps
-  // 0 -> ~5.9 m in one step. The y-lerp hauled it onto the top edge of
-  // the ramp, and once y > 1.5 the height-gated deck-edge barrier
-  // collider (x = f.x - 5..-4.7) froze it: every move/rotation check
-  // failed, so the car sat wedged at (f.x - 3.9, 6, ±10) and no escape
-  // (steer + gas, reverse) could free it. Measured trap: left turn at
-  // both flyovers ended (296.1, 6.0, 10.2) / (55.9, 6.0, 10.3).
+  // The ramp slab is 6 m wide (v6) but the NS road is 12 m wide, so the
+  // slab covers only the two flyover lanes: a car turning left/right at
+  // the intersection from a surface turn lane (x = f.x ± 3..6) never
+  // enters the slab footprint at all. The STEP guard below still
+  // protects the old trap for a car that does cross the slab edge:
+  // entering from the side faces a ~5.4-5.9 m jump, so it stays at its
+  // present height (y = 0) and drives under the ramp, on the road,
+  // instead of onto the deck.
   // The ramp slab is only 0.6 m thick with open space underneath (at
   // z = 15 the slab underside is ~4.8 m up; a car is ~1.5 m tall), so
   // ground traffic can pass UNDER it exactly like under the flat deck.
@@ -421,6 +471,44 @@ export function createWorld(scene) {
       if (h >= 0) return h - currentY > FLYOVER_STEP ? currentY : h;
     }
     return 0;
+  }
+
+  // v6: lane discipline at flyover intersections (4 lanes, 2
+  // directions). AI cars steer at graph nodes on the road centreline;
+  // at a flyover node that centreline is the divider between the two
+  // flyover lanes, and a car that climbs the ramp and then turns would
+  // meet the solid deck-edge barrier (stock cars, whose collision check
+  // passes y) or drive off the deck edge (ambient cars, whose check has
+  // no y). So the steering target is shifted into the lane the car must
+  // use — left-hand traffic:
+  //   straight NS through -> flyover lane (offset 1.5 to its side)
+  //   turning at the node  -> surface turn lane (offset 4.5 to its side)
+  //   straight EW under the deck -> no shift (both EW lanes are ground)
+  // `prev`/`next` are the neighbouring waypoints (null at path ends).
+  // viaFlyover is true for a straight NS crossing: that car passes OVER
+  // the intersection and never meets the red light below, so callers
+  // skip the signal hold for it.
+  function laneTarget(node, prev, next) {
+    for (const f of FLYOVERS) {
+      if (Math.abs(node.x - f.x) > 0.5 || Math.abs(node.z - f.z) > 0.5) continue;
+      const inDx = prev ? node.x - prev.x : 0;
+      const inDz = prev ? node.z - prev.z : 0;
+      const inNS = Math.abs(inDz) >= Math.abs(inDx);
+      const outDx = next ? next.x - node.x : inDx;
+      const outDz = next ? next.z - node.z : inDz;
+      const outNS = Math.abs(outDz) >= Math.abs(outDx);
+      if (inNS) {
+        // Southbound (+z) drives the +x side, northbound (-z) the -x side.
+        const side = inDz >= 0 ? 1 : -1;
+        const off = outNS ? FLYOVER.flyLaneX : FLYOVER.turnLaneX;
+        return { x: node.x + side * off, z: node.z, viaFlyover: outNS };
+      }
+      if (!outNS) return { x: node.x, z: node.z, viaFlyover: false };
+      // EW in, NS out: join the surface turn lane of the outgoing road.
+      const side = outDz >= 0 ? 1 : -1;
+      return { x: node.x + side * FLYOVER.turnLaneX, z: node.z, viaFlyover: false };
+    }
+    return { x: node.x, z: node.z, viaFlyover: false };
   }
 
   // ---- Buildings (instanced, pre-built once) ----------------------------
@@ -1108,6 +1196,10 @@ export function createWorld(scene) {
     spawn,
     roadGraph,
     flyovers: FLYOVERS.map((f) => ({ ...f, deckH: FLYOVER.deckH, rampLen: FLYOVER.rampLen, width: FLYOVER.width })),
+    // v6: steering-target lane shift at flyover intersections (see
+    // laneTarget above). Exposed for the traffic drivers (vehicles.js /
+    // ambient.js) and the debug API.
+    laneTarget,
     groundHeightAt(x, z, currentY = 0) {
       return flyoverHeightAt(x, z, currentY);
     },

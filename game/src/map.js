@@ -66,6 +66,19 @@ export function createMap(world) {
         ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
       }
     }
+    // Flyover decks (v6): the elevated NS lanes over z=0, drawn as an
+    // amber strip so the 4-lane layout reads on the map — the deck is
+    // the two centre (flyover) lanes; the surface turn lanes are the
+    // road itself, open to the intersection.
+    if (world.flyovers) {
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 4;
+      for (const f of world.flyovers) {
+        const [x1, y1] = toMap(f.x, f.z - 60);
+        const [x2, y2] = toMap(f.x, f.z + 60);
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      }
+    }
     // GPS route: straight line (road routing is the 3D arrow's job).
     if (gpsTarget) {
       const [px, py] = toMap(playerPos.x, playerPos.z);

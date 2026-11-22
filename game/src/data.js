@@ -44,23 +44,39 @@ export const RESERVED = [
   { id: 'vital-6', kind: 'vital-police', name: 'Polsek Beach', area: 'beach', x: 0, z: 300, w: 24, d: 18, h: 12 },
 ];
 
-// ---- Flyovers (Builder B v4) -------------------------------------------
+// ---- Flyovers (Builder B v4, v6: 4 lajur 2 arah) -----------------------
 // Two elevated decks over the z=0 arterial, both carrying the NS arterial
 // road over the EW artery so through traffic can skip the red light:
 //   A: (60, 0) — the central artery past the spawn plaza (plaza loop
 //      traffic + the mission/GPS spine to South Beach / Impound).
 //   B: (300, 0) — the downtown artery on the mission/GPS spine to the
 //      Bank / Downtown / Yacht Dock.
-// Geometry (per flyover, axis NS): deck 10 m wide (x ±5), flat 6 m high
-// over z ±10 (the whole intersection box), ramps 50 m each side rising
-// 0 -> 6 m (12% grade). The ground road under the deck stays at y=0 for
-// EW through-traffic and for turns at the intersection box; the ramps
-// ARE the NS road surface, so NS traffic (player + AI) drives up and over.
+// v6 redesign (Ayub): the road through each flyover is 4 LANES, 2
+// DIRECTIONS (2 lanes per direction, 3 m each, on the existing 12 m
+// road). Per direction the LEFTMOST lane is the ordinary surface road
+// for left/right turns at the intersection, and the other lane is the
+// flyover (straight over the intersection only). Left-hand traffic, so
+// for the southbound (+z) direction the lanes sit on the +x side and
+// for northbound (-z) on the -x side:
+//   southbound flyover lane centre x = f.x + 1.5, turn lane x = f.x + 4.5
+//   northbound flyover lane centre x = f.x - 1.5, turn lane x = f.x - 4.5
+// Geometry (per flyover, axis NS): deck 6 m wide (x ±3, the two flyover
+// lanes only), flat 6 m high over z ±10 (the whole intersection box),
+// ramps 50 m each side rising 0 -> 6 m (12% grade). The ground road
+// under the deck stays at y=0 for EW through-traffic and for the turn
+// lanes; the surface lanes run OUTSIDE the deck footprint, so a turning
+// car never meets the ramp at all. The deck-edge barriers stay solid and
+// height-gated (world.js), so a car on the deck cannot leave it.
 export const FLYOVERS = [
   { x: 60, z: 0, axis: 'NS' },
   { x: 300, z: 0, axis: 'NS' },
 ];
-export const FLYOVER = { deckH: 6, rampLen: 50, deckHalf: 10, width: 10 };
+export const FLYOVER = {
+  deckH: 6, rampLen: 50, deckHalf: 10, width: 6,
+  laneW: 3, // one lane = 3 m; road is 12 m = 4 lanes
+  flyLaneX: 1.5, // flyover-lane centre offset from the road centreline
+  turnLaneX: 4.5, // surface turn-lane centre offset from the centreline
+};
 
 // Park cell (oaks + benches, no buildings) and plaza cell (spawn area).
 export const PARK_CELL = { col: 2, row: 4 }; // x[-300,-180], z[120,240]

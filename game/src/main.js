@@ -70,6 +70,11 @@ function normalizeWorld(raw) {
       : (x, z) => x > CONFIG.water.x0 - 2,
     roadGraph: raw.roadGraph || null,
     flyovers: raw.flyovers || [],
+    // v6: lane-shifted steering target at flyover intersections
+    // (world.js laneTarget). Forwarded so the traffic drivers
+    // (vehicles.js / ambient.js) and the debug hook can use it.
+    laneTarget: typeof raw.laneTarget === 'function'
+      ? (node, prev, next) => raw.laneTarget(node, prev, next) : null,
     destinations: raw.destinations || null,
     groundHeightAt: typeof raw.groundHeightAt === 'function' ? (x, z, y = 0) => raw.groundHeightAt(x, z, y) : () => 0,
     findOpenGround: typeof raw.findOpenGround === 'function'
@@ -1016,6 +1021,7 @@ function frame(now) {
     Object.values(CONFIG.places),
     mapSys.gpsTarget,
     world.roadGraph ? world.roadGraph.segments : null,
+    world.flyovers,
   );
 
   // FPS from unclamped wall-clock frames, not the clamped dt.
@@ -1206,6 +1212,8 @@ function frame(now) {
           return true;
         },
         flyoverHeightAt: (x, z, y = 0) => world.groundHeightAt(x, z, y),
+        // v6: lane-shifted steering target at a flyover node (probe hook).
+        laneTarget: (node, prev, next) => (world.laneTarget ? world.laneTarget(node, prev, next) : node),
         // Peek at the accumulated (not yet consumed) orbit-drag deltas.
         camDragPeek: () => (input.peekCamDrag ? input.peekCamDrag() : { dx: 0, dy: 0 }),
         checkFlyover: () => ({
