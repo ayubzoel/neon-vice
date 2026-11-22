@@ -60,7 +60,7 @@ const ACTION_LABELS = {
   map: 'Open map', backpack: 'Open backpack / phone', phone: 'Open backpack / phone',
   mute: 'Mute / unmute', reload: 'Reload', jump: 'Jump',
   weapon1: 'Select pistol', weapon2: 'Select SMG', pause: 'Pause / settings',
-  gas: 'Gas — touch pedal while driving', brake: 'Brake — touch pedal while driving (stops, no reverse)',
+  gas: 'Gas — touch pedal while driving', brake: 'Brake & reverse — touch pedal while driving',
   camOrbit: 'Orbit camera — drag empty screen / mouse drag (360°, smooth)',
 };
 export function getBindings() {

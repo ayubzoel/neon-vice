@@ -203,18 +203,26 @@ export function createVehicles(scene, world) {
       if (turn === 0) turn = Math.max(-1, Math.min(1, -stick.x));
     }
     if (input.gas) forward = Math.max(forward, 1);
-    // REM pedal: brake to a full stop and HOLD at 0 — it never reverses
-    // (there is no reverse pedal on touch; S on the keyboard still
-    // brakes-then-reverses, as before).
+    // v6 BUG 1: REM (touch) and S (keyboard) are the SAME control —
+    // brake-then-reverse. The old REM branch braked to a full stop and
+    // HELD at 0, so on touch (Ayub's phone) a car/motor could never
+    // reverse at all (probe: 4 s game-time on REM, speed stayed 0.0,
+    // 0.0 m moved). From forward motion both brake hard, then keep
+    // going into reverse up to 45% of top speed (~40-50% of forward).
+    // GAS still wins forward once REM is released.
     const braking = !!input.brake;
-    if (braking) {
-      v.speed -= Math.sign(v.speed) * Math.min(Math.abs(v.speed), v.accel * 2.2 * dt);
-      if (Math.abs(v.speed) < 0.05) v.speed = 0;
-    } else if (forward > 0) v.speed += accel * forward * dt;
-    else if (forward < 0) v.speed -= (v.speed > 0.5 ? accel * 1.4 : accel * 0.6) * Math.abs(forward) * dt;
-    else v.speed -= Math.sign(v.speed) * Math.min(Math.abs(v.speed), 8 * dt);
-    v.speed = Math.max(-v.maxSpeed * 0.35, Math.min(v.maxSpeed, v.speed));
-    const steer = turn * (v.speed >= 0 ? 1 : -1) * Math.min(1, Math.abs(v.speed) / 6 + 0.25);
+    if (forward > 0 && !braking) v.speed += accel * forward * dt;
+    else if (braking || forward < 0) {
+      if (v.speed > 0.5) v.speed -= (braking ? accel * 2.2 : accel * 1.4) * dt;
+      else v.speed -= accel * 0.6 * dt;
+    } else v.speed -= Math.sign(v.speed) * Math.min(Math.abs(v.speed), 8 * dt);
+    v.speed = Math.max(-v.maxSpeed * 0.45, Math.min(v.maxSpeed, v.speed));
+    // v6 BUG LAMA (v4): steering needs motion — at a standstill the
+    // wheels cannot turn the car, so holding A/D (or the stick) with
+    // speed 0 must not spin it in place (v5 probe: 0.96 rad in 2 s
+    // game-time). Authority ramps with |speed| so low-speed manoeuvres
+    // still steer; reversing inverts it, as before.
+    const steer = turn * (v.speed >= 0 ? 1 : -1) * Math.min(1, Math.abs(v.speed) / 4);
     // Same sign as on foot (player.js): A / turn +1 raises the heading,
     // which turns the car to screen-left. (Was inverted: cars steered away
     // from the target and could never complete a driven mission.)
@@ -303,8 +311,18 @@ export function createVehicles(scene, world) {
       if (Math.random() < 0.002) {
         if (repathStock(v)) target = v.path[v.pathIndex];
       }
-      const dx = target.x - v.mesh.position.x;
-      const dz = target.z - v.mesh.position.z;
+      // v6: at a flyover intersection steer for the lane the car must use
+      // (world.laneTarget: flyover lane straight over, surface lane to
+      // turn). The red-light check below still uses the raw node — except
+      // a straight NS crossing passes OVER the intersection, so it never
+      // meets the signal (viaFlyover skips the hold).
+      const prev = v.pathIndex > 0 ? v.path[v.pathIndex - 1] : null;
+      const next = v.pathIndex + 1 < v.path.length ? v.path[v.pathIndex + 1] : null;
+      const steer = world.laneTarget
+        ? world.laneTarget(target, prev, next)
+        : { x: target.x, z: target.z, viaFlyover: false };
+      const dx = steer.x - v.mesh.position.x;
+      const dz = steer.z - v.mesh.position.z;
       const dist = Math.hypot(dx, dz);
       // Red light + anti-pileup (same rules as the ambient cars): stop
       // before a signalised arterial intersection on red, crawl on yellow,
@@ -312,7 +330,7 @@ export function createVehicles(scene, world) {
       let hold = false;
       let cap = Infinity;
       const graph = world.roadGraph;
-      if (graph && graph.arterialNodeNear) {
+      if (graph && graph.arterialNodeNear && !steer.viaFlyover) {
         const node = graph.arterialNodeNear(target.x, target.z, 3);
         if (node && dist < 22) {
           const axis = Math.abs(dx) > Math.abs(dz) ? 'EW' : 'NS';
