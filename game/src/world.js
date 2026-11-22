@@ -511,6 +511,121 @@ export function createWorld(scene) {
     return { x: node.x, z: node.z, viaFlyover: false };
   }
 
+  // v6.2: flyover recovery helpers (shared by the traffic drivers in
+  // vehicles.js / ambient.js). The v6.1 unstuck teleported a wedged car
+  // to the nearest road point — but nearestOnRoad is 2D, so for a car
+  // already ON the deck the nearest road point IS its own position:
+  // teleports of 0.14 m and 0 m, car frozen ~39 s (probe run2 id=10 at
+  // (300,6,4.97)). And the v6.1 "never turn while elevated" guard only
+  // forced straight when the CURRENT target was a flyover node: reaching
+  // the node mid-deck advanced the path to an EW node and steered the
+  // car into the deck-edge barrier (same car, heading 4.67 west).
+  // Ramp foot, in the direction of travel: ground level, flyover lane,
+  // 5 m past the ramp toe (|z| = deckHalf + rampLen + 5 = 65).
+  function flyoverAt(x, z, y) {
+    if (y <= 0.5) return null;
+    for (const f of FLYOVERS) {
+      if (Math.abs(x - f.x) <= FLYOVER.width / 2 + 1
+        && Math.abs(z - f.z) <= FLYOVER.deckHalf + FLYOVER.rampLen + 5) return f;
+    }
+    return null;
+  }
+  // Exit point for a car elevated inside a flyover corridor: the ramp
+  // foot past the flyover, in the direction of travel. The direction
+  // comes from the heading's NS component when it is decisive; a car
+  // facing a barrier (heading ~EW) falls back to the nearer foot, so
+  // the exit never points the car at a barrier. Null when the car is
+  // not elevated inside a corridor.
+  function flyoverExit(x, z, y, heading) {
+    const f = flyoverAt(x, z, y);
+    if (!f) return null;
+    let s;
+    if (Math.cos(heading) >= 0.5) s = 1;
+    else if (Math.cos(heading) <= -0.5) s = -1;
+    else s = z >= f.z ? 1 : -1;
+    return {
+      x: f.x + s * FLYOVER.flyLaneX,
+      z: f.z + s * (FLYOVER.deckHalf + FLYOVER.rampLen + 5),
+      viaFlyover: true,
+    };
+  }
+  // v6.2: nearest node ahead of (x, z) along the travel direction.
+  // Prefer a node on the SAME street the car is on (same x-column for
+  // NS travel, same z-row for EW travel); fall back to the nearest
+  // node ahead at all. Used by the missed-turn recovery: after a car
+  // crosses a flyover on the deck, the route is re-based at this node
+  // so the car drives on to the next intersection instead of steering
+  // back at the node it just passed. Returns a node {id, x, z} or null.
+  function aheadNode(x, z, heading) {
+    const hx = Math.sin(heading);
+    const hz = Math.cos(heading);
+    const ns = Math.abs(hz) >= Math.abs(hx);
+    let best = null;
+    let bestD = Infinity;
+    for (const n of roadGraph.nodes) {
+      const dx = n.x - x;
+      const dz = n.z - z;
+      if (dx * hx + dz * hz <= 0) continue; // behind
+      const lat = ns ? Math.abs(n.x - x) : Math.abs(n.z - z);
+      if (lat > 1) continue; // not on the same street
+      const d = dx * dx + dz * dz;
+      if (d < bestD) { bestD = d; best = n; }
+    }
+    if (best) return best;
+    for (const n of roadGraph.nodes) {
+      const dx = n.x - x;
+      const dz = n.z - z;
+      if (dx * hx + dz * hz <= 0) continue; // behind
+      const d = dx * dx + dz * dz;
+      if (d < bestD) { bestD = d; best = n; }
+    }
+    return best;
+  }
+  // Unstuck teleport target for a stuck car. Returns {x, z, heading}
+  // (heading null = keep the current heading), or null when no
+  // candidate is safe. Rules, both branches:
+  //   - NEVER the car's own position: every candidate must be >= 2 m
+  //     away (2D), otherwise the next candidate is tried.
+  //   - every candidate must be clear at ground level (collides r=1.5).
+  // Elevated (on a ramp/deck): the ramp feet — travel direction first
+  // (forced heading along the road in that direction), then the other
+  // foot (forced heading away from the flyover). Never nearestOnRoad.
+  // Ground: the nearest road point (>= 2 m away), else the nearest
+  // node (>= 2 m away). A car wedged inside a building is >= 10 m
+  // from the nearest road, so the building case is unaffected.
+  function unstuckTarget(x, z, y, heading) {
+    const farEnough = (p) => Math.hypot(p.x - x, p.z - z) >= 2;
+    const clear = (p) => !collides(p.x, p.z, 1.5, 0);
+    const f = flyoverAt(x, z, y);
+    if (f) {
+      const exit = flyoverExit(x, z, y, heading);
+      const s = exit.z >= f.z ? 1 : -1;
+      const foot = (dir) => ({
+        x: f.x + dir * FLYOVER.flyLaneX,
+        z: f.z + dir * (FLYOVER.deckHalf + FLYOVER.rampLen + 5),
+        heading: dir > 0 ? 0 : Math.PI,
+      });
+      for (const cand of [foot(s), foot(-s)]) {
+        if (farEnough(cand) && clear(cand)) return cand;
+      }
+      // Both feet blocked (should not happen — they are open road):
+      // fall through to the ground candidates below.
+    }
+    if (roadGraph && roadGraph.nearestOnRoad) {
+      try {
+        const near = roadGraph.nearestOnRoad(x, z);
+        if (near && farEnough(near) && clear(near)) return { x: near.x, z: near.z, heading: null };
+      } catch { /* try the node */ }
+    }
+    if (roadGraph && roadGraph.nearestNode) {
+      try {
+        const n = roadGraph.nearestNode(x, z);
+        if (n && farEnough(n) && clear(n)) return { x: n.x, z: n.z, heading: null };
+      } catch { /* no candidate */ }
+    }
+    return null;
+  }
+
   // ---- Buildings (instanced, pre-built once) ----------------------------
   const colliders = []; // {minX,maxX,minZ,maxZ}
   const byKind = { tower: [], mid: [], house: [], warehouse: [] };
@@ -1195,11 +1310,17 @@ export function createWorld(scene) {
     },
     spawn,
     roadGraph,
-    flyovers: FLYOVERS.map((f) => ({ ...f, deckH: FLYOVER.deckH, rampLen: FLYOVER.rampLen, width: FLYOVER.width })),
+    flyovers: FLYOVERS.map((f) => ({ ...f, deckH: FLYOVER.deckH, rampLen: FLYOVER.rampLen, width: FLYOVER.width, deckHalf: FLYOVER.deckHalf, flyLaneX: FLYOVER.flyLaneX })),
     // v6: steering-target lane shift at flyover intersections (see
     // laneTarget above). Exposed for the traffic drivers (vehicles.js /
     // ambient.js) and the debug API.
     laneTarget,
+    // v6.2: flyover recovery — exit foot for an elevated car, and the
+    // unstuck teleport target (see flyoverExit / unstuckTarget above).
+    flyoverExit,
+    unstuckTarget,
+    // v6.2: nearest node ahead, for the missed-turn recovery.
+    aheadNode,
     groundHeightAt(x, z, currentY = 0) {
       return flyoverHeightAt(x, z, currentY);
     },

@@ -1,0 +1,257 @@
+{
+  "results": [
+    {
+      "name": "6 mobil ditempatkan di deck (2 flyover x NS + 2 hadap pembatas)",
+      "ok": true,
+      "detail": "[\"A deck x=300 north id=8\",\"B deck x=60 south id=9\",\"C deck x=300 south id=1000\",\"D deck x=60 north id=1001\",\"E deck x=300 west (barrier) id=10\",\"F deck x=60 east (barrier) id=11\"]"
+    },
+    {
+      "name": "A deck x=300 north (id=8): kembali ke jalan dalam 45 dtk game-time, tanpa teleport gagal",
+      "ok": true,
+      "detail": "firings=0 jump= footFiring=false freedAt~11s maxDisp10s=61.3m end=(298.55,0.48,-56.31)"
+    },
+    {
+      "name": "B deck x=60 south (id=9): kembali ke jalan dalam 45 dtk game-time, tanpa teleport gagal",
+      "ok": true,
+      "detail": "firings=0 jump= footFiring=false freedAt~11s maxDisp10s=49.0m end=(61.4,1.98,43.98)"
+    },
+    {
+      "name": "C deck x=300 south (id=1000): kembali ke jalan dalam 45 dtk game-time, tanpa teleport gagal",
+      "ok": true,
+      "detail": "firings=0 jump= footFiring=false freedAt~11s maxDisp10s=48.9m end=(301.4,1.99,43.9)"
+    },
+    {
+      "name": "D deck x=60 north (id=1001): kembali ke jalan dalam 45 dtk game-time, tanpa teleport gagal",
+      "ok": true,
+      "detail": "firings=0 jump= footFiring=false freedAt~11s maxDisp10s=61.3m end=(58.54,0.48,-56.3)"
+    },
+    {
+      "name": "E deck x=300 west (barrier) (id=10): kembali ke jalan dalam 45 dtk game-time, tanpa teleport gagal",
+      "ok": true,
+      "detail": "firings=0 jump= footFiring=false freedAt~11s maxDisp10s=53.3m end=(301.38,0.85,53.24)"
+    },
+    {
+      "name": "F deck x=60 east (barrier) (id=11): kembali ke jalan dalam 45 dtk game-time, tanpa teleport gagal",
+      "ok": true,
+      "detail": "firings=0 jump= footFiring=false freedAt~11s maxDisp10s=53.4m end=(61.47,0.83,53.41)"
+    },
+    {
+      "name": "0 console/page errors",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "0 request eksternal",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "report": {
+    "tag": "run2",
+    "head": "v6.2",
+    "placed": [
+      {
+        "id": 8,
+        "label": "A deck x=300 north",
+        "at": {
+          "x": 300,
+          "y": 6,
+          "z": 5
+        },
+        "h": 3.141592653589793
+      },
+      {
+        "id": 9,
+        "label": "B deck x=60 south",
+        "at": {
+          "x": 60,
+          "y": 6,
+          "z": -5
+        },
+        "h": 0
+      },
+      {
+        "id": 1000,
+        "label": "C deck x=300 south",
+        "at": {
+          "x": 300,
+          "y": 6,
+          "z": -5
+        },
+        "h": 0
+      },
+      {
+        "id": 1001,
+        "label": "D deck x=60 north",
+        "at": {
+          "x": 60,
+          "y": 6,
+          "z": 5
+        },
+        "h": 3.141592653589793
+      },
+      {
+        "id": 10,
+        "label": "E deck x=300 west (barrier)",
+        "at": {
+          "x": 299,
+          "y": 6,
+          "z": 0
+        },
+        "h": 4.67
+      },
+      {
+        "id": 11,
+        "label": "F deck x=60 east (barrier)",
+        "at": {
+          "x": 61,
+          "y": 6,
+          "z": 0
+        },
+        "h": 1.57
+      }
+    ],
+    "errors": [],
+    "external": [],
+    "cars": {
+      "8": {
+        "label": "A deck x=300 north",
+        "firings": [],
+        "unstuckTotal": 0,
+        "firstFiringGt": null,
+        "maxDisp10s": 61.33,
+        "freed": true,
+        "freedAt": 11,
+        "goodFiring": false,
+        "footFiring": false,
+        "start": {
+          "x": 300,
+          "y": 6,
+          "z": 5
+        },
+        "end": {
+          "x": 298.55,
+          "y": 0.48,
+          "z": -56.31,
+          "v": 4.27,
+          "gt": 11
+        }
+      },
+      "9": {
+        "label": "B deck x=60 south",
+        "firings": [],
+        "unstuckTotal": 0,
+        "firstFiringGt": null,
+        "maxDisp10s": 49,
+        "freed": true,
+        "freedAt": 11,
+        "goodFiring": false,
+        "footFiring": false,
+        "start": {
+          "x": 60,
+          "y": 6,
+          "z": -5
+        },
+        "end": {
+          "x": 61.4,
+          "y": 1.98,
+          "z": 43.98,
+          "v": 6,
+          "gt": 11
+        }
+      },
+      "10": {
+        "label": "E deck x=300 west (barrier)",
+        "firings": [],
+        "unstuckTotal": 0,
+        "firstFiringGt": null,
+        "maxDisp10s": 53.29,
+        "freed": true,
+        "freedAt": 11,
+        "goodFiring": false,
+        "footFiring": false,
+        "start": {
+          "x": 299,
+          "y": 6,
+          "z": 0
+        },
+        "end": {
+          "x": 301.38,
+          "y": 0.85,
+          "z": 53.24,
+          "v": 4,
+          "gt": 11
+        }
+      },
+      "11": {
+        "label": "F deck x=60 east (barrier)",
+        "firings": [],
+        "unstuckTotal": 0,
+        "firstFiringGt": null,
+        "maxDisp10s": 53.41,
+        "freed": true,
+        "freedAt": 11,
+        "goodFiring": false,
+        "footFiring": false,
+        "start": {
+          "x": 61,
+          "y": 6,
+          "z": 0
+        },
+        "end": {
+          "x": 61.47,
+          "y": 0.83,
+          "z": 53.41,
+          "v": 4,
+          "gt": 11
+        }
+      },
+      "1000": {
+        "label": "C deck x=300 south",
+        "firings": [],
+        "unstuckTotal": 0,
+        "firstFiringGt": null,
+        "maxDisp10s": 48.92,
+        "freed": true,
+        "freedAt": 11,
+        "goodFiring": false,
+        "footFiring": false,
+        "start": {
+          "x": 300,
+          "y": 6,
+          "z": -5
+        },
+        "end": {
+          "x": 301.4,
+          "y": 1.99,
+          "z": 43.9,
+          "v": 6,
+          "gt": 11
+        }
+      },
+      "1001": {
+        "label": "D deck x=60 north",
+        "firings": [],
+        "unstuckTotal": 0,
+        "firstFiringGt": null,
+        "maxDisp10s": 61.32,
+        "freed": true,
+        "freedAt": 11,
+        "goodFiring": false,
+        "footFiring": false,
+        "start": {
+          "x": 60,
+          "y": 6,
+          "z": 5
+        },
+        "end": {
+          "x": 58.54,
+          "y": 0.48,
+          "z": -56.3,
+          "v": 4,
+          "gt": 11
+        }
+      }
+    }
+  }
+}

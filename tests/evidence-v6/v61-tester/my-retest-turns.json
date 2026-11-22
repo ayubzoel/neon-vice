@@ -1,0 +1,106 @@
+{
+  "results": [
+    {
+      "name": "enter vehicle (E)",
+      "ok": true,
+      "detail": "drivenId=3"
+    },
+    {
+      "name": "NS->EW x=60 belok KIRI (selatan->timur)",
+      "ok": true,
+      "detail": "end=(85.1,0.0,2.1) h=1.62 v=8.6 yMax=0.00 wall=81s"
+    },
+    {
+      "name": "NS->EW x=60 belok KANAN (selatan->barat)",
+      "ok": true,
+      "detail": "end=(34.3,0.0,1.6) h=-1.62 v=8.6 yMax=0.00 wall=110s"
+    },
+    {
+      "name": "NS->EW x=60 belok KIRI (utara->barat)",
+      "ok": true,
+      "detail": "end=(34.9,0.0,-2.5) h=4.72 v=7.0 yMax=0.00 wall=104s"
+    },
+    {
+      "name": "NS->EW x=60 belok KANAN (utara->timur)",
+      "ok": true,
+      "detail": "end=(85.7,0.0,-2.4) h=1.56 v=8.9 yMax=0.00 wall=111s"
+    },
+    {
+      "name": "NS->EW x=300 belok KIRI (selatan->timur)",
+      "ok": true,
+      "detail": "end=(325.5,0.0,1.5) h=7.92 v=8.6 yMax=0.00 wall=120s"
+    },
+    {
+      "name": "NS->EW x=300 belok KANAN (selatan->barat)",
+      "ok": true,
+      "detail": "end=(274.3,0.0,1.6) h=-1.62 v=8.6 yMax=0.00 wall=73s"
+    },
+    {
+      "name": "NS->EW x=300 belok KIRI (utara->barat)",
+      "ok": true,
+      "detail": "end=(274.9,0.0,-2.0) h=4.76 v=8.6 yMax=0.00 wall=86s"
+    },
+    {
+      "name": "NS->EW x=300 belok KANAN (utara->timur)",
+      "ok": true,
+      "detail": "end=(325.7,0.0,-2.4) h=1.56 v=8.6 yMax=0.00 wall=96s"
+    },
+    {
+      "name": "EW->NS x=60 belok KIRI (barat->selatan)",
+      "ok": true,
+      "detail": "end=(57.5,0.0,25.5) h=0.01 v=8.6 yMax=0.00 wall=80s"
+    },
+    {
+      "name": "EW->NS x=60 belok KANAN (timur->selatan)",
+      "ok": true,
+      "detail": "end=(61.8,0.0,25.4) h=-0.04 v=8.6 yMax=0.00 wall=93s"
+    },
+    {
+      "name": "EW->NS x=60 belok KANAN (barat->utara)",
+      "ok": true,
+      "detail": "end=(58.2,0.0,-25.4) h=-3.19 v=8.6 yMax=0.00 wall=106s"
+    },
+    {
+      "name": "EW->NS x=60 belok KIRI (timur->utara)",
+      "ok": true,
+      "detail": "end=(62.4,0.0,-25.4) h=3.15 v=8.6 yMax=0.00 wall=93s"
+    },
+    {
+      "name": "EW->NS x=300 belok KIRI (barat->selatan)",
+      "ok": true,
+      "detail": "end=(297.3,0.0,25.4) h=0.01 v=8.9 yMax=0.00 wall=96s"
+    },
+    {
+      "name": "EW->NS x=300 belok KANAN (timur->selatan)",
+      "ok": true,
+      "detail": "end=(302.4,0.0,25.3) h=-0.01 v=8.6 yMax=0.00 wall=77s"
+    },
+    {
+      "name": "EW->NS x=300 belok KANAN (barat->utara)",
+      "ok": true,
+      "detail": "end=(298.2,0.0,-25.6) h=-3.19 v=10.3 yMax=0.00 wall=98s"
+    },
+    {
+      "name": "EW->NS x=300 belok KIRI (timur->utara)",
+      "ok": true,
+      "detail": "end=(301.8,0.0,-25.4) h=3.19 v=8.6 yMax=0.00 wall=88s"
+    },
+    {
+      "name": "lurus timur z=0 (bawah kedua deck): sampai x>390, y=0",
+      "ok": true,
+      "detail": "end=(391.2,0.0,0.0) h=1.57 v=13.9 yMax=0.00 wall=475s"
+    },
+    {
+      "name": "0 console/page errors",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "0 request eksternal",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "passed": 20,
+  "total": 20
+}

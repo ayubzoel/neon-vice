@@ -1,0 +1,25 @@
+{
+  "results": [
+    {
+      "name": "enter vehicle (E)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "belok KANAN dari lajur belok x=60 (selatan->barat): sampai jalan EW, y=0",
+      "ok": false,
+      "detail": "end=(64.5,0.0,-25.0) h=0.00 v=5.0 yMax=0.00 wall=150s"
+    },
+    {
+      "name": "lurus timur z=0 (bawah kedua deck): sampai x>390, y=0",
+      "ok": false,
+      "detail": "end=(-14.0,0.0,10.0) h=1.57 v=0.0 yMax=0.00 wall=420s"
+    },
+    {
+      "name": "0 console/page errors",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "errors": []
+}

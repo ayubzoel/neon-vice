@@ -75,6 +75,15 @@ function normalizeWorld(raw) {
     // (vehicles.js / ambient.js) and the debug hook can use it.
     laneTarget: typeof raw.laneTarget === 'function'
       ? (node, prev, next) => raw.laneTarget(node, prev, next) : null,
+    // v6.2: flyover recovery helpers (world.js flyoverExit /
+    // unstuckTarget). Same forwarding as laneTarget.
+    flyoverExit: typeof raw.flyoverExit === 'function'
+      ? (x, z, y, h) => raw.flyoverExit(x, z, y, h) : null,
+    unstuckTarget: typeof raw.unstuckTarget === 'function'
+      ? (x, z, y, h) => raw.unstuckTarget(x, z, y, h) : null,
+    // v6.2: nearest node ahead, for the missed-turn recovery.
+    aheadNode: typeof raw.aheadNode === 'function'
+      ? (x, z, h) => raw.aheadNode(x, z, h) : null,
     destinations: raw.destinations || null,
     groundHeightAt: typeof raw.groundHeightAt === 'function' ? (x, z, y = 0) => raw.groundHeightAt(x, z, y) : () => 0,
     findOpenGround: typeof raw.findOpenGround === 'function'

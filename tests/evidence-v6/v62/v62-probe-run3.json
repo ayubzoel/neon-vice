@@ -1,0 +1,18 @@
+{
+  "tag": "run3",
+  "head": "v6.2",
+  "samples": 63,
+  "gameTimeSpan": 100.9,
+  "trafficCount": 28,
+  "idsTracked": 28,
+  "corridorEntries": 9,
+  "unstuckFired": 0,
+  "minDisp20s": {
+    "id": 8,
+    "m": 4.42
+  },
+  "corridorStuck": [],
+  "anywhereStuck": [],
+  "errors": [],
+  "external": []
+}

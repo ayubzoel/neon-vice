@@ -1,0 +1,35 @@
+{
+  "results": [
+    {
+      "name": "enter vehicle (E)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "polisi kejar: pemain menyeberang flyover ke selatan (z>90, naik deck)",
+      "ok": true,
+      "detail": "end=(60.0,0.0,121.3) h=0.00 v=13.9 yMax=6.00"
+    },
+    {
+      "name": "polisi kejar: mendekati pemain (< 30 m) selama pengejaran",
+      "ok": true,
+      "detail": "minDist=0.9 m cars=2"
+    },
+    {
+      "name": "polisi kejar: ada yang melintasi flyover mengikuti pemain",
+      "ok": true,
+      "detail": "crossed=2 #0 z -39->102; #1 z -36->102;"
+    },
+    {
+      "name": "polisi kejar: tidak ada mobil polisi yang diam membeku",
+      "ok": true,
+      "detail": "stuck=0"
+    },
+    {
+      "name": "0 console/page errors",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "errors": []
+}

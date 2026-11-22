@@ -1,14 +1,18 @@
-// Neon Vice v6.1 — focused re-test of the two v6-flyover wall-time
+// Neon Vice v6.2 — focused re-test of the two v6-flyover wall-time
 // failures (right turn x=60 south->west; straight east under both
 // decks). Both failed only on the suite's wall-clock budget while the
 // car was driving correctly (heading/road/y all right, still moving);
 // this re-runs exactly those two maneuvers with generous wall budgets
 // to prove the maneuvers themselves work.
+// v6.2 harness fix: ABORT (explicit fail) when `enter` fails or
+// driving=false — the v6.1 run tested a PARKED car when enter flaked
+// (the tester's diagnosis: 2/4 "failures" were the harness tracking a
+// parked car, not the game). Never test a parked car again.
 // Usage: node tests/v61-retest.js (spawns its own server on :8131)
 const { spawn } = require('child_process');
 const http = require('http');
 const fs = require('fs');
-const OUT = '/home/hatch/workspace/makefun/neon-vice-entry/tests/evidence-v6/v61';
+const OUT = '/home/hatch/workspace/makefun/neon-vice-entry/tests/evidence-v6/v62';
 const PORT = 8131;
 const URL = `http://localhost:${PORT}/?autostart=new`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -121,14 +125,32 @@ async function main() {
 
     check('enter vehicle (E)', await enterNearestCar(), '');
 
+    // v6.2: ABORT the whole retest when enter failed or driving=false.
+    // carPos()/setCar() track the vehicle nearest the PLAYER — with
+    // driving=false that is a parked car, and every maneuver after it
+    // measures the wrong vehicle (v6.1 tester finding: 2/4). Fail
+    // explicitly instead of testing a parked car.
+    async function ensureDriving(label) {
+      if ((await stats()).driving) return;
+      check(`ABORT ${label}: driving=false — harness berhenti, tidak menguji mobil parkir`, false, 'stats().driving === false');
+      fs.writeFileSync(`${OUT}/v62-retest.json`, JSON.stringify({ results, errors }, null, 2));
+      console.log('\nv6.2 retest: ABORTED (driving=false)');
+      server.kill();
+      await browser.close();
+      process.exit(1);
+    }
+    await ensureDriving('enter');
+
     // (1) Right turn from the turn lane x=60, south -> west.
     {
+      await ensureDriving('belok kanan x=60');
       await setCar(64.5, -25, 0, 5);
       await page.keyboard.down('KeyW');
       let turning = false; let released = false;
       let yMax = 0; let end = null; let ok = false;
       const t0 = Date.now();
       while (Date.now() - t0 < 150000) {
+        await ensureDriving('belok kanan x=60');
         const c = await carPos();
         if (!c) break;
         end = c;
@@ -153,11 +175,13 @@ async function main() {
 
     // (2) Straight east under both decks.
     {
+      await ensureDriving('lurus timur z=0');
       await setCar(-90, 0, Math.PI / 2, 0);
       await page.keyboard.down('KeyW');
       let yMax = 0; let end = null; let ok = false;
       const t0 = Date.now();
       while (Date.now() - t0 < 420000) {
+        await ensureDriving('lurus timur z=0');
         const c = await carPos();
         if (!c) break;
         end = c; yMax = Math.max(yMax, c.y);
@@ -173,9 +197,9 @@ async function main() {
     }
 
     check('0 console/page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
-    fs.writeFileSync(`${OUT}/v61-retest.json`, JSON.stringify({ results, errors }, null, 2));
+    fs.writeFileSync(`${OUT}/v62-retest.json`, JSON.stringify({ results, errors }, null, 2));
     const failed = results.filter((r) => !r.ok).length;
-    console.log(`\nv6.1 retest: ${results.length - failed}/${results.length} passed`);
+    console.log(`\nv6.2 retest: ${results.length - failed}/${results.length} passed`);
     await browser.close();
     process.exit(failed ? 1 : 0);
   } finally {

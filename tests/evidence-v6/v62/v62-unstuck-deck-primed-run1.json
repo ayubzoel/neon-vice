@@ -1,0 +1,254 @@
+{
+  "results": [
+    {
+      "name": "4 mobil ditempatkan di deck hadap pembatas, timer di-prime",
+      "ok": true,
+      "detail": "[\"A deck x=300 west id=8\",\"B deck x=60 east id=9\",\"C deck x=300 east id=10\",\"D deck x=60 west id=11\"]"
+    },
+    {
+      "name": "A deck x=300 west (id=8): unstuck teleport ke kaki ramp {\"x\":301.5,\"z\":65,\"h\":0} + kembali ke jalan",
+      "ok": true,
+      "detail": "firings=1 jump=60.12 after={\"x\":301.5,\"y\":0,\"z\":65.1,\"h\":-0.03,\"onRoad\":true} freedAt~10.2s maxDisp10s=116.7m"
+    },
+    {
+      "name": "B deck x=60 east (id=9): unstuck teleport ke kaki ramp {\"x\":58.5,\"z\":-65,\"h\":3.141592653589793} + kembali ke jalan",
+      "ok": true,
+      "detail": "firings=1 jump=60.12 after={\"x\":58.5,\"y\":0,\"z\":-65.1,\"h\":3.11,\"onRoad\":true} freedAt~10.2s maxDisp10s=115.9m"
+    },
+    {
+      "name": "C deck x=300 east (id=10): unstuck teleport ke kaki ramp {\"x\":298.5,\"z\":-65,\"h\":3.141592653589793} + kembali ke jalan",
+      "ok": true,
+      "detail": "firings=1 jump=60.12 after={\"x\":298.5,\"y\":0,\"z\":-65.1,\"h\":3.11,\"onRoad\":true} freedAt~10.2s maxDisp10s=116.8m"
+    },
+    {
+      "name": "D deck x=60 west (id=11): unstuck teleport ke kaki ramp {\"x\":61.5,\"z\":65,\"h\":0} + kembali ke jalan",
+      "ok": true,
+      "detail": "firings=1 jump=60.12 after={\"x\":61.5,\"y\":0,\"z\":65.1,\"h\":-0.03,\"onRoad\":true} freedAt~10.2s maxDisp10s=116.8m"
+    },
+    {
+      "name": "0 console/page errors",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "0 request eksternal",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "report": {
+    "tag": "run1",
+    "head": "v6.2",
+    "primed": true,
+    "placed": [
+      {
+        "id": 8,
+        "label": "A deck x=300 west",
+        "at": {
+          "x": 300,
+          "y": 6,
+          "z": 5
+        },
+        "h": 4.67,
+        "exp": {
+          "x": 301.5,
+          "z": 65,
+          "h": 0
+        },
+        "u0": 0
+      },
+      {
+        "id": 9,
+        "label": "B deck x=60 east",
+        "at": {
+          "x": 60,
+          "y": 6,
+          "z": -5
+        },
+        "h": 1.57,
+        "exp": {
+          "x": 58.5,
+          "z": -65,
+          "h": 3.141592653589793
+        },
+        "u0": 0
+      },
+      {
+        "id": 10,
+        "label": "C deck x=300 east",
+        "at": {
+          "x": 300,
+          "y": 6,
+          "z": -5
+        },
+        "h": 1.57,
+        "exp": {
+          "x": 298.5,
+          "z": -65,
+          "h": 3.141592653589793
+        },
+        "u0": 0
+      },
+      {
+        "id": 11,
+        "label": "D deck x=60 west",
+        "at": {
+          "x": 60,
+          "y": 6,
+          "z": 5
+        },
+        "h": 4.67,
+        "exp": {
+          "x": 61.5,
+          "z": 65,
+          "h": 0
+        },
+        "u0": 0
+      }
+    ],
+    "errors": [],
+    "external": [],
+    "cars": {
+      "8": {
+        "label": "A deck x=300 west",
+        "firings": [
+          {
+            "gt": 0.23,
+            "u": 1,
+            "before": {
+              "x": 300,
+              "y": 6,
+              "z": 5
+            },
+            "after": {
+              "x": 301.5,
+              "y": 0,
+              "z": 65.1,
+              "h": -0.03,
+              "onRoad": true
+            },
+            "jump": 60.12
+          }
+        ],
+        "unstuckTotal": 1,
+        "firstFiringGt": 0.23,
+        "maxDisp10s": 116.7,
+        "freed": true,
+        "freedAt": 10.2,
+        "footOk": true,
+        "end": {
+          "x": 266.39,
+          "y": 0,
+          "z": 116.76,
+          "v": 10,
+          "gt": 10.2
+        }
+      },
+      "9": {
+        "label": "B deck x=60 east",
+        "firings": [
+          {
+            "gt": 0.23,
+            "u": 1,
+            "before": {
+              "x": 60,
+              "y": 6,
+              "z": -5
+            },
+            "after": {
+              "x": 58.5,
+              "y": 0,
+              "z": -65.1,
+              "h": 3.11,
+              "onRoad": true
+            },
+            "jump": 60.12
+          }
+        ],
+        "unstuckTotal": 1,
+        "firstFiringGt": 0.23,
+        "maxDisp10s": 115.9,
+        "freed": true,
+        "freedAt": 10.2,
+        "footOk": true,
+        "end": {
+          "x": 49.1,
+          "y": 0,
+          "z": -120.39,
+          "v": 4,
+          "gt": 10.2
+        }
+      },
+      "10": {
+        "label": "C deck x=300 east",
+        "firings": [
+          {
+            "gt": 0.23,
+            "u": 1,
+            "before": {
+              "x": 300,
+              "y": 6,
+              "z": -5
+            },
+            "after": {
+              "x": 298.5,
+              "y": 0,
+              "z": -65.1,
+              "h": 3.11,
+              "onRoad": true
+            },
+            "jump": 60.12
+          }
+        ],
+        "unstuckTotal": 1,
+        "firstFiringGt": 0.23,
+        "maxDisp10s": 116.81,
+        "freed": true,
+        "freedAt": 10.2,
+        "footOk": true,
+        "end": {
+          "x": 266.25,
+          "y": 0,
+          "z": -116.83,
+          "v": 10,
+          "gt": 10.2
+        }
+      },
+      "11": {
+        "label": "D deck x=60 west",
+        "firings": [
+          {
+            "gt": 0.23,
+            "u": 1,
+            "before": {
+              "x": 60,
+              "y": 6,
+              "z": 5
+            },
+            "after": {
+              "x": 61.5,
+              "y": 0,
+              "z": 65.1,
+              "h": -0.03,
+              "onRoad": true
+            },
+            "jump": 60.12
+          }
+        ],
+        "unstuckTotal": 1,
+        "firstFiringGt": 0.23,
+        "maxDisp10s": 116.81,
+        "freed": true,
+        "freedAt": 10.2,
+        "footOk": true,
+        "end": {
+          "x": 93.75,
+          "y": 0,
+          "z": 116.83,
+          "v": 10,
+          "gt": 10.2
+        }
+      }
+    }
+  }
+}

@@ -5,9 +5,11 @@
 // of game time, with _unstuckCount incrementing. The 100 s traffic
 // probe proves wedges no longer OCCUR; this proves the backstop WORKS
 // if one ever does.
+// v6.2 re-run: output redirected to tests/evidence-v6/v62 so the v6.1
+// evidence is not overwritten.
 // Usage: node tests/v61-unstuck-proof.js  (uses the dev server on :8110)
 const fs = require('fs');
-const OUT = '/home/hatch/workspace/makefun/neon-vice-entry/tests/evidence-v6/v61';
+const OUT = '/home/hatch/workspace/makefun/neon-vice-entry/tests/evidence-v6/v62';
 const URL = 'http://localhost:8110/?autostart=new';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 fs.mkdirSync(OUT, { recursive: true });
@@ -103,9 +105,9 @@ async function main() {
       `unstuck=${c.unstuck} onRoad=${c.onRoad} at=(${c.x},${c.z}) fired~${firedAt ? firedAt.gt + 's' : '?'}`);
   }
   check('0 console/page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
-  fs.writeFileSync(`${OUT}/v61-unstuck-proof.json`, JSON.stringify({ results, errors, tracks }, null, 2));
+  fs.writeFileSync(`${OUT}/v62-unstuck-proof.json`, JSON.stringify({ results, errors, tracks }, null, 2));
   const failed = results.filter((r) => !r.ok).length;
-  console.log(`\nv6.1 unstuck proof: ${results.length - failed}/${results.length} passed`);
+  console.log(`\nv6.2 unstuck proof (bangunan): ${results.length - failed}/${results.length} passed`);
   await browser.close();
   process.exit(failed ? 1 : 0);
 }

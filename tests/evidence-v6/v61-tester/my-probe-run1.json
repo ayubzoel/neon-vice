@@ -1,0 +1,61 @@
+{
+  "tag": "run1",
+  "head": "993e9da",
+  "samples": 616,
+  "gameTimeSpan": 100.1,
+  "trafficCount": 28,
+  "idsTracked": 28,
+  "corridorEntries": 9,
+  "unstuckFired": 0,
+  "minDisp20s": {
+    "id": 11,
+    "m": 0.79
+  },
+  "corridorStuck": [],
+  "anywhereStuck": [
+    {
+      "id": 11,
+      "kind": "sedan",
+      "fromGt": 62.2,
+      "toGt": 82.4,
+      "disp": 1.93,
+      "at": {
+        "x": 58.82,
+        "y": 0,
+        "z": 113.91,
+        "v": 4,
+        "h": 13.23
+      }
+    },
+    {
+      "id": 1018,
+      "kind": "sedan",
+      "fromGt": 50,
+      "toGt": 70,
+      "disp": 2.18,
+      "at": {
+        "x": 320.15,
+        "y": 0,
+        "z": -119.89,
+        "v": 10,
+        "h": -1.58
+      }
+    },
+    {
+      "id": 1019,
+      "kind": "sedan",
+      "fromGt": 69.2,
+      "toGt": 89.2,
+      "disp": 1.72,
+      "at": {
+        "x": -328.36,
+        "y": 0,
+        "z": 360.79,
+        "v": 10,
+        "h": 1.6
+      }
+    }
+  ],
+  "errors": [],
+  "external": []
+}

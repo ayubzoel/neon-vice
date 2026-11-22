@@ -1,0 +1,17 @@
+=== tests/evidence-v6/v62/v62-probe-run1-samples.json
+corridorEntries=7 corridorStuck=0 trueStuck(anywhere)=0 turnarounds=2
+  turnaround id=1010 gt 82.1->102.7 disp=2.38 pathLen=185.3 at=(-323.54,0,120.65) v=10
+  turnaround id=1011 gt 37.4->58.2 disp=1.41 pathLen=187.8 at=(35.6,0,0.68) v=10
+=== tests/evidence-v6/v62/v62-probe-run2-samples.json
+corridorEntries=7 corridorStuck=0 trueStuck(anywhere)=0 turnarounds=2
+  turnaround id=8 gt 53.7->74.1 disp=1.71 pathLen=170.7 at=(-200.99,0,-118.94) v=10
+  turnaround id=1010 gt 71->92.3 disp=2.6 pathLen=192.5 at=(-59.43,0,-20.93) v=10
+=== tests/evidence-v6/v62/v62-probe-run3-samples.json
+corridorEntries=9 corridorStuck=0 trueStuck(anywhere)=0 turnarounds=0
+=== tests/evidence-v6/v61-tester/my-probe-run2-samples.json
+corridorEntries=10 corridorStuck=1 trueStuck(anywhere)=1 turnarounds=3
+  CORRIDOR-STUCK id=10 gt 61.1->81.1 disp=2.96 pathLen=37 at=(300,6,4.97) v=-4
+  TRUE-STUCK id=10 gt 69.1->89.2 disp=1.44 pathLen=14.8 at=(300,6,4.97) v=-4
+  turnaround id=8 gt 1.8->22 disp=2.58 pathLen=174.2 at=(-286.47,0,-120.69) v=9.73
+  turnaround id=10 gt 6.8->26.9 disp=2.66 pathLen=131.2 at=(282.09,0,120.26) v=4
+  turnaround id=1019 gt 69.1->89.2 disp=2.65 pathLen=181.8 at=(-328.86,0,360.8) v=10
