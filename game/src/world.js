@@ -222,12 +222,44 @@ export function createWorld(scene) {
     const cx = (s.ax + s.bx) / 2;
     const cz = (s.az + s.bz) / 2;
     roadGeos.push(stripGeo(s.length, s.width, alongX, cx, cz, 0.05, s.length / 6));
-    // Sidewalks: 3 m strips on both sides, slightly raised.
+    // Sidewalks (v5): 3 m strips on both sides, slightly raised — TRIMMED
+    // at each end by the crossing street's half-width, so no strip juts
+    // into the cross road, over the zebra, or across the intersection
+    // box. (Before: full node-to-node length, so every strip ran through
+    // the crossing road's asphalt band and overlapped the perpendicular
+    // strips at the corners.)
+    const nA = roadGraph.nodes[s.a];
+    const nB = roadGraph.nodes[s.b];
+    const trimA = alongX ? V_WIDTHS[nA.col] / 2 : H_WIDTHS[nA.row] / 2;
+    const trimB = alongX ? V_WIDTHS[nB.col] / 2 : H_WIDTHS[nB.row] / 2;
+    const wLen = s.length - trimA - trimB;
+    // Trimmed midpoint: shifted (trimA - trimB)/2 toward B along the
+    // segment direction (segments always run low -> high col/row).
+    const wcx = cx + (alongX ? (trimA - trimB) / 2 : 0);
+    const wcz = cz + (alongX ? 0 : (trimA - trimB) / 2);
     const off = s.width / 2 + 1.5;
     const px = alongX ? 0 : off;
     const pz = alongX ? off : 0;
-    walkGeos.push(stripGeo(s.length, 3, alongX, cx + px, cz + pz, 0.08, s.length / 6));
-    walkGeos.push(stripGeo(s.length, 3, alongX, cx - px, cz - pz, 0.08, s.length / 6));
+    walkGeos.push(stripGeo(wLen, 3, alongX, wcx + px, wcz + pz, 0.08, wLen / 6));
+    walkGeos.push(stripGeo(wLen, 3, alongX, wcx - px, wcz - pz, 0.08, wLen / 6));
+  }
+  // Sidewalk corner pads (v5): a 3x3 pad fills each intersection corner
+  // between the two trimmed strips, so the corner follows the
+  // intersection shape. A pad exists ONLY where both adjacent arms exist
+  // (a horizontal arm toward sx AND a vertical arm toward sz); at road
+  // ends the missing arm gets no pad, so the sidewalk stops flush with
+  // the road end instead of jutting out past it.
+  for (const n of roadGraph.nodes) {
+    const vW = V_WIDTHS[n.col];
+    const hW = H_WIDTHS[n.row];
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const hasH = n.col + sx >= 0 && n.col + sx < XS.length;
+        const hasV = n.row + sz >= 0 && n.row + sz < ZS.length;
+        if (!hasH || !hasV) continue;
+        walkGeos.push(stripGeo(3, 3, true, n.x + sx * (vW / 2 + 1.5), n.z + sz * (hW / 2 + 1.5), 0.08, 0.5));
+      }
+    }
   }
   // Zebra crossings: one per approach at every intersection.
   for (const n of roadGraph.nodes) {
