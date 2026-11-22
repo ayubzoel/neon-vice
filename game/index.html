@@ -53,7 +53,8 @@
   .card p { color: #cbd5e1; line-height: 1.5; margin: 8px 0; }
   .card .keys { font-size: 14px; color: #94a3b8; line-height: 1.7; }
   .card .keys b { color: #e2e8f0; }
-  .btn { display: block; width: 100%; margin: 8px 0; padding: 13px 16px; font-size: 17px; font-weight: 700; color: #0b0e14; background: #f472b6; border: none; border-radius: 10px; cursor: pointer; }
+  .btn { display: block; width: 100%; margin: 8px 0; padding: 13px 16px; min-height: 48px; font-size: 17px; font-weight: 700; color: #0b0e14; background: #f472b6; border: none; border-radius: 10px; cursor: pointer; box-sizing: border-box; }
+  .hidden { display: none !important; }
   .btn:hover { background: #f9a8d4; }
   .btn.small { width: auto; display: inline-block; padding: 8px 14px; font-size: 14px; margin: 4px; }
   .btn.hidden { display: none; }
@@ -165,13 +166,30 @@
 
 <div id="startScreen" class="panel">
   <div class="card">
-    <h1>NEON VICE</h1>
-    <p class="sub">A SMALL OPEN-WORLD CRIME STORY &mdash; VICE HARBOR</p>
-    <p>Vera Cruz came to Vice Harbor with empty pockets and a $50,000 debt to Rico Salas. Twelve missions, side jobs, cars, a boat, and the cops — all in one small night city. Drive, deliver, fight, and pay it off.</p>
-    <button class="btn" id="btnNew" data-i18n="newGame">New Game</button>
-    <button class="btn secondary hidden" id="btnContinue" data-i18n="continue">Continue</button>
-    <button class="btn secondary" id="btnSettings" data-i18n="settings">Settings</button>
-    <p class="keys"><b>WASD / Arrows</b> move &middot; <b>A / D</b> turn &middot; <b>Shift</b> run &middot; <b>E</b> enter car / shop &middot; <b>F</b> exit vehicle &middot; <b>H</b> holster &middot; <b>1/2</b> weapon &middot; <b>M</b> map &middot; <b>B</b> backpack &middot; <b>N</b> mute &middot; hold <b>Right-click / AIM</b> to lock a target. Driving: <b>W</b> gas, <b>S</b> brake / reverse, <b>A / D</b> steer. Drag the empty screen to orbit the camera 360&deg;.<br>On phones: left stick to move, push it far to run. While driving the stick only steers — use the <b>GAS</b> / <b>REM</b> pedals. Swipe the empty screen to orbit the camera.</p>
+    <!-- v5 loading screen: ONLY two choices (plus title/logo) — Start Game
+         and Settings. The New/Continue choice lives one tap deeper, under
+         Start Game, so the first thing a player sees is never a wall of
+         buttons. The controls cheat-sheet moved into Settings > Controls. -->
+    <div id="startMain">
+      <h1>NEON VICE</h1>
+      <p class="sub">A SMALL OPEN-WORLD CRIME STORY &mdash; VICE HARBOR</p>
+      <p>Vera Cruz came to Vice Harbor with empty pockets and a $50,000 debt to Rico Salas. Twelve missions, side jobs, cars, a boat, and the cops — all in one small night city.</p>
+      <button class="btn" id="btnPlay" data-i18n="playGame">Start Game</button>
+      <button class="btn secondary" id="btnSettings" data-i18n="settings">Settings</button>
+    </div>
+    <div id="startPlay" class="hidden">
+      <h2 data-i18n="playGame">Start Game</h2>
+      <button class="btn" id="btnNew" data-i18n="newGame">New Game</button>
+      <button class="btn secondary" id="btnContinue" data-i18n="continue">Continue</button>
+      <p class="keys" id="continueNote" hidden></p>
+      <button class="btn secondary" id="btnBackToStart" data-i18n="back">Back</button>
+    </div>
+    <div id="startConfirm" class="hidden">
+      <h2 data-i18n="newGame">New Game</h2>
+      <p data-i18n="overwriteSave">A save already exists. Starting a New Game will overwrite it.</p>
+      <button class="btn" id="btnConfirmNew" data-i18n="startNewAnyway">Yes, start new game</button>
+      <button class="btn secondary" id="btnCancelNew" data-i18n="cancel">Cancel</button>
+    </div>
   </div>
 </div>
 
@@ -211,17 +229,29 @@
 <div id="settingsPanel" class="panel hidden">
   <div class="card">
     <h2 data-i18n="settings">Settings</h2>
+    <h3 data-i18n="gameplay">Gameplay</h3>
+    <label class="row"><span data-i18n="quality">Graphics quality</span>
+      <select id="qualitySel"><option value="high">High</option><option value="low">Low</option></select></label>
+    <label class="row"><span data-i18n="cameraSensitivity">Camera sensitivity</span><span><input type="range" id="sensSlider" min="0.5" max="2" step="0.1" value="1" style="width:130px;vertical-align:middle"> <b id="sensVal">1.0×</b></span></label>
+    <label class="row"><span data-i18n="cameraFollow">Camera follows movement</span><input type="checkbox" id="followChk" checked></label>
+    <label class="row"><span data-i18n="language">Language</span>
+      <select id="langSel"><option value="en">English</option><option value="id">Bahasa Indonesia</option></select></label>
+    <h3 data-i18n="audio">Audio</h3>
     <label class="row"><span data-i18n="volume">Volume</span><input type="range" id="volSlider" min="0" max="1" step="0.05" value="0.7"></label>
     <label class="row"><span data-i18n="music">Music volume</span><input type="range" id="musicSlider" min="0" max="1" step="0.05" value="0.8"></label>
     <label class="row"><span data-i18n="sfx">SFX volume</span><input type="range" id="sfxSlider" min="0" max="1" step="0.05" value="0.9"></label>
     <label class="row"><span data-i18n="mute">Mute all sound</span><input type="checkbox" id="muteChk"></label>
-    <label class="row"><span data-i18n="quality">Graphics quality</span>
-      <select id="qualitySel"><option value="high">High</option><option value="low">Low</option></select></label>
-    <label class="row"><span data-i18n="language">Language</span>
-      <select id="langSel"><option value="en">English</option><option value="id">Bahasa Indonesia</option></select></label>
     <h3 data-i18n="controls">Controls</h3>
     <div id="controlsList"></div>
+    <h3 data-i18n="saveData">Save Data</h3>
     <button class="btn" id="btnSaveNow" data-i18n="saveNow">Save now</button>
+    <button class="btn secondary" id="btnLoadSave" data-i18n="loadSave">Load save</button>
+    <button class="btn secondary" id="btnResetSave" data-i18n="resetSave">Delete progress</button>
+    <div id="resetConfirm" class="hidden" style="border:1px solid #ef4444;border-radius:10px;padding:12px;margin:8px 0">
+      <p style="margin:0 0 8px" data-i18n="resetConfirm">Delete all progress? This cannot be undone.</p>
+      <button class="btn small" id="btnConfirmReset" data-i18n="confirmDelete" style="background:#ef4444;color:#fff">Yes, delete</button>
+      <button class="btn small secondary" id="btnCancelReset" data-i18n="cancel">Cancel</button>
+    </div>
     <button class="btn secondary" id="btnCloseSettings" data-i18n="close">Close</button>
   </div>
 </div>
