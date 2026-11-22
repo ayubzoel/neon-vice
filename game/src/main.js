@@ -846,7 +846,7 @@ function step(dt) {
     player.update(dt, frameInput, world, cameraBasis());
     audio.setEngine(0, false);
   }
-  vehicles.update(dt);
+  vehicles.update(dt, driving);
   ambient.update(dt);
 
   // Builder B v4 rev 6: traffic cars ride the flyover profile too (their

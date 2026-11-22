@@ -426,7 +426,92 @@ export function createAmbient(scene, world, vehicles, opts = {}) {
     return false;
   }
 
+  // v6.1: footprint collision for the extra traffic cars — centre +
+  // nose + tail at r=1.0 (the car's real half-width), height-aware,
+  // exactly like vehicles.js carCollides. The old single-point r=1.4
+  // check with NO y ignored the deck barriers entirely (ambient cars
+  // could clip through them); with y but r=1.4 it would wedge like the
+  // stock cars did (lane centre 1.5 + 1.4 = 2.9 > barrier at 2.7).
+  // With r=1.0 a centred car clears the barrier by 0.2 m (2.5 < 2.7).
+  function trafficCollides(x, z, heading, y) {
+    if (!world.collides) return false;
+    const sx = Math.sin(heading);
+    const sz = Math.cos(heading);
+    if (world.collides(x, z, 1.0, y)) return true;
+    if (world.collides(x + sx * 1.7, z + sz * 1.7, 1.0, y)) return true;
+    if (world.collides(x - sx * 1.7, z - sz * 1.7, 1.0, y)) return true;
+    return false;
+  }
+  // Height at a destination point (for collision checks): the barrier
+  // gate (y > 1.5) must be judged where the car is GOING, not where it
+  // is — judging the reverse step by the current elevated y blocked
+  // the escape downhill and froze the car at speed -4 forever.
+  function destY(x, z, curY) {
+    if (!world.groundHeightAt) return curY;
+    try { return world.groundHeightAt(x, z, curY); } catch { return curY; }
+  }
+
+  // v6.1 unstuck (same contract as vehicles.js unstickCar): a traffic
+  // car still < 6 m for 15 s of game time is teleported to the nearest
+  // road centreline point and re-pathed — no traffic car may freeze
+  // forever, on a ramp or anywhere else. 15 s, not 10: a legitimate
+  // wait is bounded by the 20 s signal cycle (red at most 10 s) plus a
+  // few seconds of queue drain, and the timer is POSITION-only on
+  // purpose — run 2 proved a hold-aware timer never fires, because a
+  // wedged car interleaves red-light / queue holds with blocked
+  // reverse steps, and every hold reset the clock.
+  function unstickCar(v) {
+    let tx = v.mesh.position.x;
+    let tz = v.mesh.position.z;
+    if (graph && graph.nearestOnRoad) {
+      try {
+        const near = graph.nearestOnRoad(tx, tz);
+        if (near) { tx = near.x; tz = near.z; }
+      } catch { /* keep position */ }
+    }
+    if (world.collides && world.collides(tx, tz, 1.5)) {
+      if (world.findOpenGround) {
+        try {
+          const g = world.findOpenGround(tx, tz, 30);
+          if (g) { tx = g.x; tz = g.z; }
+        } catch { /* keep centreline point */ }
+      }
+    }
+    v.mesh.position.x = tx;
+    v.mesh.position.z = tz;
+    if (world.groundHeightAt) {
+      try { v.mesh.position.y = world.groundHeightAt(tx, tz, v.mesh.position.y); } catch { /* keep y */ }
+    }
+    v.speed = 0;
+    v.reverse = 0;
+    v.wait = 0;
+    v._stuckX = tx;
+    v._stuckZ = tz;
+    v._stuckT = 0;
+    v._unstuckCount = (v._unstuckCount || 0) + 1; // probe-visible
+    repathCar(v);
+  }
+
+  function trackStill(v, dt) {
+    const px = v.mesh.position.x;
+    const pz = v.mesh.position.z;
+    if (v._stuckX === undefined) {
+      v._stuckX = px;
+      v._stuckZ = pz;
+      v._stuckT = 0;
+    }
+    if (Math.hypot(px - v._stuckX, pz - v._stuckZ) > 6) {
+      v._stuckX = px;
+      v._stuckZ = pz;
+      v._stuckT = 0;
+    } else {
+      v._stuckT += dt;
+      if (v._stuckT > 15) unstickCar(v);
+    }
+  }
+
   function updateTrafficCar(v, dt) {
+    trackStill(v, dt);
     // Backing out of a wedge: after a collision the car reverses straight
     // along the way it came (that ground is clear — it just drove there)
     // instead of retrying the same blocked beeline forever.
@@ -434,7 +519,10 @@ export function createAmbient(scene, world, vehicles, opts = {}) {
       v.reverse -= dt;
       const bx = v.mesh.position.x - Math.sin(v.heading) * 4 * dt;
       const bz = v.mesh.position.z - Math.cos(v.heading) * 4 * dt;
-      if (!world.collides || !world.collides(bx, bz, 1.4)) {
+      // v6.1: footprint + destination height (see destY): the old
+      // single-point r=1.4 check with the current y blocked the reverse
+      // step itself once the car was elevated on a ramp.
+      if (!world.collides || !trafficCollides(bx, bz, v.heading, destY(bx, bz, v.mesh.position.y))) {
         v.mesh.position.x = bx;
         v.mesh.position.z = bz;
       } else {
@@ -459,8 +547,26 @@ export function createAmbient(scene, world, vehicles, opts = {}) {
     const steer = world.laneTarget
       ? world.laneTarget(target, prev, next)
       : { x: target.x, z: target.z, viaFlyover: false };
-    const dx = steer.x - v.mesh.position.x;
-    const dz = steer.z - v.mesh.position.z;
+    // v6.1: never TURN while ELEVATED on a flyover (y > 0.5 — on a ramp
+    // or the deck). A car routed to a turn at the node while it is
+    // still climbing, or re-pathed mid-deck, steers diagonally across
+    // the 6 m deck; its nose swings into the deck-edge barrier and the
+    // footprint check wedges it (probe run 2: cars froze ~20 s on the
+    // deck at (61.46,6,3.74) and (298.57,6,3.69)). While elevated,
+    // force the straight-through flyover lane in the car's current
+    // travel direction (viaFlyover, so the signal hold below is skipped
+    // too — the car is OVER the intersection). The turn is deferred to
+    // the next intersection; the car just detours.
+    let steerTarget = steer;
+    if (v.mesh.position.y > 0.5 && !steer.viaFlyover && world.laneTarget) {
+      const s = Math.cos(v.heading) >= 0 ? 1 : -1; // +z south / -z north
+      const straight = world.laneTarget(target,
+        { x: target.x, z: target.z - s * 120 },
+        { x: target.x, z: target.z + s * 120 });
+      if (straight.viaFlyover) steerTarget = straight; // target IS a flyover node
+    }
+    const dx = steerTarget.x - v.mesh.position.x;
+    const dz = steerTarget.z - v.mesh.position.z;
     const dist = Math.hypot(dx, dz);
     // Red light: the next path node is a signalised arterial intersection
     // and the light for this car's travel axis is red — stop before the
@@ -468,7 +574,7 @@ export function createAmbient(scene, world, vehicles, opts = {}) {
     // The state comes from the same 20 s cycle as the visual heads.
     let hold = false;
     let cap = Infinity;
-    if (graph.arterialNodeNear && !steer.viaFlyover) {
+    if (graph.arterialNodeNear && !steerTarget.viaFlyover) {
       const node = graph.arterialNodeNear(target.x, target.z, 3);
       if (node && dist < 22) {
         const axis = Math.abs(dx) > Math.abs(dz) ? 'EW' : 'NS';
@@ -490,6 +596,11 @@ export function createAmbient(scene, world, vehicles, opts = {}) {
       const fz = Math.cos(v.heading);
       for (const o of vehicles.list) {
         if (o === v || !o.traffic) continue;
+        // v6.1: height guard — a car on the deck (y≈6) is NOT in the
+        // way of ground traffic underneath it, and vice versa (probe
+        // run 2: id=1017 froze 20 s at (54.45,0,0) behind id=1016 on
+        // the deck above it).
+        if (Math.abs(o.mesh.position.y - v.mesh.position.y) > 2.5) continue;
         if (Math.sin(o.heading) * fx + Math.cos(o.heading) * fz < 0.5) continue;
         const ox = o.mesh.position.x - v.mesh.position.x;
         const oz = o.mesh.position.z - v.mesh.position.z;
@@ -509,17 +620,54 @@ export function createAmbient(scene, world, vehicles, opts = {}) {
       }
       return;
     }
-    const targetHeading = Math.atan2(dx, dz);
+    // v6.1: complete the lane change BEFORE the ramp foot. A car
+    // steering at the lane point ON the node (55.5/64.5 for a turn,
+    // 58.5/61.5 straight) from 120 m out only shifts halfway by the
+    // ramp foot (z=60): its approach line crosses the ramp footprint
+    // at x≈57.5, climbs the ramp, and once y passes the 1.5 m barrier
+    // gate its footprint overlaps the deck-edge barrier — forward
+    // blocked, reverse blocked, bounce forever (run 3: id=11 at
+    // (57.57,1.29,49.58) and id=1011 at (62.21,1.28,-49.68), both
+    // turn-approach ramp wedges). While still > 80 m from a flyover
+    // node on an NS approach, aim at the lane point 75 m before the
+    // node instead, so the car is fully in its lane (x<=56 or
+    // x>=64, clear of the barrier) before the ramp starts. dist /
+    // node-advance / red-light above still use the node point.
+    let aimX = steerTarget.x;
+    let aimZ = steerTarget.z;
+    if (steerTarget.x !== target.x && dist > 80) {
+      const inNS = prev
+        ? Math.abs(target.z - prev.z) >= Math.abs(target.x - prev.x)
+        : Math.abs(target.z - v.mesh.position.z) >= Math.abs(target.x - v.mesh.position.x);
+      if (inNS) {
+        const s = (target.z - (prev ? prev.z : v.mesh.position.z)) >= 0 ? 1 : -1;
+        aimX = steerTarget.x;
+        aimZ = target.z - s * 75;
+      }
+    }
+    const targetHeading = Math.atan2(aimX - v.mesh.position.x, aimZ - v.mesh.position.z);
     let diff = targetHeading - v.heading;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
     // Slow for turns and near nodes; cruise on straights.
-    const wantSpeed = Math.min((Math.abs(diff) > 0.5 || dist < 14) ? 4 : 10, cap);
+    const wantSpeed = Math.min(
+      (Math.abs(diff) > 0.5 || dist < 14) ? 4 : 10,
+      // v6.1: cap a straight flyover crossing at 6 m/s — the lane is
+      // only 3 m wide with 0.2 m of barrier clearance at the car's real
+      // half-width, so coarse SwiftShader steps must track the lane
+      // centre instead of overshooting into the barrier.
+      steerTarget.viaFlyover ? 6 : Infinity,
+      cap,
+    );
     v.speed += Math.sign(wantSpeed - v.speed) * Math.min(Math.abs(wantSpeed - v.speed), 8 * dt);
     v.heading += Math.max(-2.5 * dt, Math.min(2.5 * dt, diff));
     const nx = v.mesh.position.x + Math.sin(v.heading) * v.speed * dt;
     const nz = v.mesh.position.z + Math.cos(v.heading) * v.speed * dt;
-    if (world.collides && world.collides(nx, nz, 1.4)) {
+    // v6.1: footprint + destination height (see trafficCollides /
+    // destY). The old single-point r=1.4 check with no y ignored the
+    // deck barriers; with y it would wedge a centred car (1.5 + 1.4 =
+    // 2.9 > barrier at 2.7). The real half-width (1.0) clears by 0.2 m.
+    if (world.collides && trafficCollides(nx, nz, v.heading, destY(nx, nz, v.mesh.position.y))) {
       v.reverse = 0.8; // back out of the wedge, then take a fresh route
       v.speed = -4;
       repathCar(v);
