@@ -965,7 +965,9 @@ function updateHud(dt) {
     hintText = ui.t('exitCar');
   }
   hint.textContent = hintText;
-  ui.setBannerHint(translateHint(hintText));
+  // v5: the tutorial banner is an in-game strip — it must not leak onto
+  // the loading screen (which shows only Start Game + Settings).
+  if (state === 'playing') ui.setBannerHint(translateHint(hintText));
   // Map overlay redraw (pass the live mission target for its map icon, plus
   // the ambient pedestrians + traffic so the map shows the living city).
   // (The minimap no longer lives here — see frame(), v5 item 3.)

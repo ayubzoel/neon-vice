@@ -104,6 +104,7 @@ async function main() {
   check('a6 loading: debug state() == title', st0 === 'title', `state=${st0}`);
   const btnBox = await d.page.locator('#btnPlay').boundingBox();
   check('a7 loading: btnPlay touch target >=48px', btnBox && btnBox.height >= 48, `h=${btnBox && btnBox.height}`);
+  check('a8 loading: tutorial banner hidden on title (only Start Game + Settings)', (await vis(d.page, '#topBanner')) === 'hidden');
   await shot(d.page, '01-loading-desktop.png');
 
   // Settings from the loading screen (before any save): change music volume,
