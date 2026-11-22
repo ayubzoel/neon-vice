@@ -167,6 +167,60 @@ export function createMissions(scene, world, ctx) {
   ring.visible = false;
   scene.add(ring);
 
+  // v5 item 7 — ground circles: a flat disc + outer ring lying ON the road
+  // surface so the player can see exactly where to stand. Two of them:
+  //   startCircle (gold)  — the NEXT mission's start point while no mission
+  //     is active; standing inside auto-starts that mission (Ayub: "Saya
+  //     sudah berada di titik misi, tapi tidak ada misi yang keluar" — the
+  //     old flow only started missions from the UI, never by proximity).
+  //   targetCircle (green) — the ACTIVE stage's destination (goto / hold /
+  //     enterVehicle / race checkpoint / kill target); entering it is what
+  //     completes a goto stage, so the trigger boundary is drawn, not
+  //     guessed. Both are pure additions: the pink beacon beam + ring, the
+  //     spinning gold diamond and the "!" sprite above are untouched.
+  // Unit geometry (radius 1), scaled per circle so the drawn radius always
+  // equals the trigger radius. depthWrite off + y just above the road so
+  // the disc never z-fights the asphalt or the pink ring (y 0.1).
+  function makeGroundCircle(color) {
+    const group = new THREE.Group();
+    group.visible = false;
+    const discMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false });
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 48), discMat);
+    disc.rotation.x = -Math.PI / 2;
+    disc.position.y = 0.12;
+    group.add(disc);
+    const ringMat2 = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false });
+    const edge = new THREE.Mesh(new THREE.RingGeometry(0.88, 1, 48), ringMat2);
+    edge.rotation.x = -Math.PI / 2;
+    edge.position.y = 0.14;
+    group.add(edge);
+    group.renderOrder = 1;
+    scene.add(group);
+    return { group, discMat, ringMat: ringMat2 };
+  }
+  const startCircle = makeGroundCircle(0xffd400); // gold = "start here"
+  const targetCircle = makeGroundCircle(0x22ff88); // green = "go here / done here"
+  let circleTime = 0;
+  let startCircleState = null; // {x, z, radius, missionId} | null
+  let targetCircleState = null; // {x, z, radius} | null
+  function showCircle(c, x, z, radius) {
+    c.group.position.set(x, 0, z);
+    c.group.scale.set(radius, 1, radius);
+    c.group.visible = true;
+  }
+  function pulseCircles(dt) {
+    circleTime += dt;
+    const pulse = 0.5 + 0.5 * Math.sin(circleTime * 3);
+    if (startCircle.group.visible) {
+      startCircle.discMat.opacity = 0.16 + 0.12 * pulse;
+      startCircle.ringMat.opacity = 0.65 + 0.35 * pulse;
+    }
+    if (targetCircle.group.visible) {
+      targetCircle.discMat.opacity = 0.16 + 0.12 * pulse;
+      targetCircle.ringMat.opacity = 0.65 + 0.35 * pulse;
+    }
+  }
+
   // Mission icon (Builder Markers+Trees): the pink beam + ring alone did
   // not read as a mission icon, so the active target also gets a big
   // floating gold diamond that slowly spins and bobs, plus a "!" sprite
@@ -218,6 +272,14 @@ export function createMissions(scene, world, ctx) {
   let stageState = {};
   let completed = [];
   let debtPaid = false;
+  // v5 item 7 — auto-start re-arm: after a mission completes or fails, its
+  // start circle stays disarmed for THAT mission until the player is seen
+  // outside it (radius + 5 m). Without this, failing a kill/race stage
+  // while standing on its own start point would instantly re-start it in
+  // a loop. A different mission id re-arms immediately (completing mission
+  // N must never block mission N+1's circle), and a fresh load starts
+  // armed so standing at the start point is exactly what starts it.
+  let disarmedMissionId = null;
 
   // Side-job state (one at a time).
   let sideJob = null; // {kind, stage, timer, from, to, checkpoints, cpIndex, pay}
@@ -364,6 +426,7 @@ export function createMissions(scene, world, ctx) {
   function failMission(reason) {
     if (status !== 'active') return;
     status = 'failed';
+    disarmedMissionId = currentDef() ? currentDef().id : null; // v5 item 7: no instant re-start loop
     hideBeacon();
     ctx.onMessage(`Mission failed: ${reason}`);
     ctx.audio.fail();
@@ -373,6 +436,7 @@ export function createMissions(scene, world, ctx) {
   function completeMission() {
     const def = currentDef();
     status = 'done';
+    disarmedMissionId = def.id; // v5 item 7: re-arms on exit, or at once for the next mission id
     completed.push(def.id);
     ctx.addMoney(def.reward);
     ctx.audio.cash();
@@ -408,6 +472,99 @@ export function createMissions(scene, world, ctx) {
   function distTo(x, z) {
     const p = ctx.player.group.position;
     return Math.hypot(p.x - x, p.z - z);
+  }
+
+  // v5 item 7 — where the NEXT mission starts, and how big its circle is.
+  // Mirrors what startStage() will use for stage 0, so the drawn circle
+  // sits on the exact spot the mission begins: goto/hold/enterVehicle use
+  // their own x,z; kill uses its first spawn; race uses its first
+  // checkpoint snapped onto the road (like startStage does). The trigger
+  // radius is at least 12 m — debug.teleport snaps to open ground within
+  // 10 m, so a smaller circle could strand the player just outside it
+  // after a teleport — and the drawn radius always equals the trigger.
+  function startPointFor(def) {
+    const s0 = def.stages[0];
+    if (!s0) return null;
+    let raw = null;
+    if (s0.type === 'race') {
+      const cp = s0.checkpoints[0];
+      if (!cp) return null;
+      try {
+        const rg = ctx.world && ctx.world.roadGraph;
+        if (rg && rg.nearestOnRoad) {
+          const p = rg.nearestOnRoad(cp.x, cp.z);
+          if (p && typeof p.x === 'number') raw = { x: p.x, z: p.z };
+        }
+      } catch { /* fall through to the ground snap */ }
+      if (!raw) raw = { x: cp.x, z: cp.z };
+      const p = snap(raw.x, raw.z);
+      return { x: p.x, z: p.z, radius: 12 };
+    }
+    if (s0.type === 'kill') raw = s0.spawn[0];
+    else raw = { x: s0.x, z: s0.z };
+    if (!raw || typeof raw.x !== 'number') return null;
+    const p = snap(raw.x, raw.z);
+    let radius = 12;
+    if (s0.type === 'goto' || s0.type === 'hold') radius = Math.max(s0.radius || 10, 12);
+    else if (s0.type === 'enterVehicle') radius = Math.max(s0.radius || 14, 12);
+    return { x: p.x, z: p.z, radius };
+  }
+
+  // v5 item 7 — the gold start circle + proximity auto-start. Runs every
+  // frame while no mission is active (idle / done / failed). The next
+  // mission is currentDef(): missionIndex already points at it after a
+  // completion, and stays on the failed mission after a fail. Suppressed
+  // while a side job runs (the beacon belongs to the side job then, and
+  // starting a main mission under it would fight over the same marker).
+  // Auto-start fires exactly once: startMission flips status to 'active',
+  // so this branch stops running until the mission ends.
+  function updateStartCircle() {
+    const avail = (status !== 'active' && status !== 'complete') ? currentDef() : null;
+    if (!avail || sideJob) {
+      startCircle.group.visible = false;
+      startCircleState = null;
+      return;
+    }
+    const sp = startPointFor(avail);
+    if (!sp) {
+      startCircle.group.visible = false;
+      startCircleState = null;
+      return;
+    }
+    showCircle(startCircle, sp.x, sp.z, sp.radius);
+    startCircleState = { x: sp.x, z: sp.z, radius: sp.radius, missionId: avail.id };
+    const d = distTo(sp.x, sp.z);
+    if (disarmedMissionId !== null && disarmedMissionId !== avail.id) disarmedMissionId = null;
+    if (disarmedMissionId === avail.id) {
+      if (d > sp.radius + 5) disarmedMissionId = null;
+      return;
+    }
+    if (d < sp.radius) startMission(avail.id);
+  }
+
+  // v5 item 7 — the green destination circle for the active stage. Drawn
+  // radius always equals the stage's own completion radius, so "inside
+  // the circle" and "stage completes" are the same boundary. Follows the
+  // live stageTarget (kill targets move, race checkpoints advance).
+  // Evade stages have no location: no circle, like the beacon.
+  function updateTargetCircle() {
+    if (status !== 'active') {
+      targetCircle.group.visible = false;
+      targetCircleState = null;
+      return;
+    }
+    const stage = currentStage();
+    const t = stage ? stageTarget() : null;
+    if (!stage || !t) {
+      targetCircle.group.visible = false;
+      targetCircleState = null;
+      return;
+    }
+    let radius = 10;
+    if (stage.type === 'goto' || stage.type === 'hold' || stage.type === 'enterVehicle') radius = stage.radius || 10;
+    else if (stage.type === 'race' || stage.type === 'kill') radius = 12;
+    showCircle(targetCircle, t.x, t.z, radius);
+    targetCircleState = { x: t.x, z: t.z, radius };
   }
 
   function updateMission(dt) {
@@ -580,6 +737,15 @@ export function createMissions(scene, world, ctx) {
         x: e.mesh.position.x, z: e.mesh.position.z, dead: e.dead, kind: e.kind, hp: e.hp,
       }));
     },
+    // v5 item 7 — live ground-circle state for the harness / HUD checks:
+    // the gold start circle (next mission, while none is active) and the
+    // green destination circle (active stage target). Null when hidden.
+    missionCircles() {
+      return {
+        start: startCircleState ? { ...startCircleState, visible: startCircle.group.visible } : null,
+        target: targetCircleState ? { ...targetCircleState, visible: targetCircle.group.visible } : null,
+      };
+    },
     startMission,
     failMission,
     startSideJob,
@@ -597,12 +763,16 @@ export function createMissions(scene, world, ctx) {
       debtPaid = !!saved.debtPaid;
       status = 'idle';
       stageIndex = 0;
+      disarmedMissionId = null; // v5 item 7: a fresh load starts armed
     },
     getState() {
       return { missionIndex, completed, debtPaid };
     },
     update(dt) {
       animateMarker(dt);
+      pulseCircles(dt); // v5 item 7: gold/green ground circles breathe
+      updateStartCircle(); // v5 item 7: gold start circle + proximity auto-start
+      updateTargetCircle(); // v5 item 7: green destination circle
       updateMission(dt);
       updateSideJob(dt);
     },
