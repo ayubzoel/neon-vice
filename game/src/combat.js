@@ -196,6 +196,85 @@ export function createCombat(scene, world, player, audio) {
     return best === null ? null : +best.toFixed(1);
   }
 
+  // --- Line-of-sight escape (v6.3 fix) ------------------------------------
+  // The old "sees" check was distance-only: a patrol car 17 m away on the
+  // road kept seeing a runner on foot forever, so escaping on foot at 2+
+  // stars was practically impossible (the car is faster than the runner
+  // and the gap never passed 70 m). A unit now "sees" the player only
+  // when the segment unit -> player is clear of buildings: hiding behind
+  // a building breaks line-of-sight and lets the escape timer run even
+  // while a cop is still within sightRange.
+  // hasLineOfSight samples world.collides() along the segment (~4 m
+  // steps, endpoints excluded — both ends stand on open ground). Water
+  // (x > WATER_X0) counts as a blocker via collides(): a small accepted
+  // inaccuracy, no special case. Throttle: the per-unit LOS is recomputed
+  // at most every 0.25 s of game time, only while wanted > 0, only for
+  // living units (max 4 foot + 4 cars, each <= ~18 samples inside
+  // sightRange, so one refresh is at most ~150 collides() calls — no
+  // new per-frame O(n^2) loop; between refreshes the cached value is
+  // reused, and a unit spawned since the last refresh is computed once
+  // on demand). maintainForce's `hot` stays distance-based (untouched).
+  let losCacheTime = -99;
+  let losCache = new Map(); // unit -> true when LOS unit->player is clear
+
+  function hasLineOfSight(ax, az, bx, bz) {
+    if (!world.collides) return true;
+    const dx = bx - ax;
+    const dz = bz - az;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 0.001) return true;
+    const n = Math.max(1, Math.ceil(dist / 4));
+    for (let i = 1; i < n; i += 1) {
+      const t = i / n;
+      if (world.collides(ax + dx * t, az + dz * t, 0)) return false;
+    }
+    return true;
+  }
+
+  function nearestLivingPolice(px, pz) {
+    let best = null;
+    let bestD = Infinity;
+    for (const u of [...police, ...policeCars]) {
+      if (u.dead) continue;
+      const d = Math.hypot(u.mesh.position.x - px, u.mesh.position.z - pz);
+      if (d < bestD) { bestD = d; best = u; }
+    }
+    return best ? { unit: best, dist: bestD } : null;
+  }
+
+  function refreshLos(px, pz) {
+    const sight = CONFIG.wanted.sightRange || 70;
+    const near = nearestLivingPolice(px, pz);
+    const fresh = new Map();
+    for (const u of [...police, ...policeCars]) {
+      if (u.dead) continue;
+      const ux = u.mesh.position.x;
+      const uz = u.mesh.position.z;
+      const d = Math.hypot(ux - px, uz - pz);
+      // LOS only matters inside sightRange — except for the nearest unit,
+      // whose LOS is exposed by the debug API at any distance.
+      if (d < sight || (near && u === near.unit)) {
+        fresh.set(u, hasLineOfSight(ux, uz, px, pz));
+      }
+    }
+    losCache = fresh;
+    losCacheTime = gameTime;
+  }
+
+  // LOS to the nearest living police unit (cached; computed on demand
+  // only when that unit is not in the cache, e.g. spawned since the last
+  // refresh). null when no living police unit exists.
+  function nearestPoliceLos() {
+    const px = player.group.position.x;
+    const pz = player.group.position.z;
+    const near = nearestLivingPolice(px, pz);
+    if (!near) return null;
+    if (losCache.has(near.unit)) return losCache.get(near.unit);
+    const los = hasLineOfSight(near.unit.mesh.position.x, near.unit.mesh.position.z, px, pz);
+    losCache.set(near.unit, los);
+    return los;
+  }
+
   // Snapshot for the HUD + debug API (stats()): whether the escape timer
   // is running, its 0..1 progress, the seconds needed at this wanted
   // level, and the nearest living police unit (foot or car).
@@ -206,6 +285,10 @@ export function createCombat(scene, world, player, audio) {
       progress: needed > 0 ? Math.max(0, Math.min(1, escapeTimer / needed)) : 0,
       needed,
       nearestPoliceDist: nearestPoliceDist(),
+      // LOS to the nearest living police unit (true = clear, false =
+      // blocked by a building, null = no living police). policeCanSee
+      // above is now LOS-aware too.
+      nearestPoliceLos: nearestPoliceLos(),
     };
   }
 
@@ -934,14 +1017,29 @@ export function createCombat(scene, world, player, audio) {
       const sight = CONFIG.wanted.sightRange || 70;
       const px = player.group.position.x;
       const pz = player.group.position.z;
+      // "Sees" = inside sightRange AND line-of-sight clear (v6.3 LOS
+      // fix). The LOS cache refreshes at most every 0.25 s of game time;
+      // a unit spawned since the last refresh is computed once on demand.
+      // maintainForce's `hot` below stays distance-based — untouched.
       policeCanSee = false;
       if (wanted > 0) {
+        if (gameTime - losCacheTime >= 0.25) refreshLos(px, pz);
+        const sees = (u) => {
+          if (u.dead) return false;
+          if (Math.hypot(u.mesh.position.x - px, u.mesh.position.z - pz) >= sight) return false;
+          let los = losCache.get(u);
+          if (los === undefined) {
+            los = hasLineOfSight(u.mesh.position.x, u.mesh.position.z, px, pz);
+            losCache.set(u, los);
+          }
+          return los;
+        };
         for (const p of police) {
-          if (!p.dead && Math.hypot(p.mesh.position.x - px, p.mesh.position.z - pz) < sight) { policeCanSee = true; break; }
+          if (sees(p)) { policeCanSee = true; break; }
         }
         if (!policeCanSee) {
           for (const c of policeCars) {
-            if (!c.dead && Math.hypot(c.mesh.position.x - px, c.mesh.position.z - pz) < sight) { policeCanSee = true; break; }
+            if (sees(c)) { policeCanSee = true; break; }
           }
         }
         if (policeCanSee) {

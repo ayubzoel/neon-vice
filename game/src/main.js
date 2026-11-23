@@ -1131,6 +1131,7 @@ function frame(now) {
             escapeProgress: +e.progress.toFixed(3),
             escapeNeeded: e.needed,
             nearestPoliceDist: e.nearestPoliceDist,
+            nearestPoliceLos: e.nearestPoliceLos,
           };
         })(),
         speed: driving ? Math.abs(driving.speed) : player.speed,
