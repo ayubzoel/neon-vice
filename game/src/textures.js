@@ -181,7 +181,22 @@ export function makeGrassTexture() {
 // 'worship' | 'vital-hospital' | 'vital-police'. The same canvas is used as
 // map + emissiveMap, so lit windows glow at night while the facade stays dark.
 export function makeBuildingTexture(kind) {
-  const base = {
+  return makeBuildingTextureBase(kind, null);
+}
+
+// v6.6 item 7 — light-base variant for the pastel facades: the same
+// window pattern, but a LIGHT grey base (#b5b5b5) instead of the dark
+// one. A pastel per-instance color multiplies a dark base into a still-
+// dark facade (0.14 x 1.0 = 0.14) — invisible as "pastel". Multiplying
+// a light base gives a bright pastel (0.71 x 1.0 = 0.71 pink/tosca/
+// mint), which is the Ocean Drive look. The windows are the same warm
+// lit ones, so they still read at night.
+export function makeBuildingTextureLight(kind) {
+  return makeBuildingTextureBase(kind, '#b5b5b5');
+}
+
+function makeBuildingTextureBase(kind, lightBase) {
+  const base = lightBase ?? {
     tower: '#232a36',
     mid: '#2a2622',
     house: '#33302a',

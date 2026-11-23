@@ -869,7 +869,11 @@ export function createWorld(scene) {
           const bx = x0 + (i + 0.5) * plotW + randRange(rng, -2, 2);
           const bz = z0 + (j + 0.5) * plotD + randRange(rng, -2, 2);
           if (rectOverlapsReserved(bx, bz, w, d, 5)) continue;
-          const b = { x: bx, z: bz, w, d, h };
+          // v6.6 item 7: the building carries its zone, so
+          // makeInstancedBox can tint downtown/beach facades pastel.
+          // RESERVED buildings (worship/vital) are built separately and
+          // never get a zone, so they are untouched.
+          const b = { x: bx, z: bz, w, d, h, zone };
           byKind[kind].push(b);
           colliders.push({ minX: bx - w / 2, maxX: bx + w / 2, minZ: bz - d / 2, maxZ: bz + d / 2 });
           if (zone === 'downtown' && (kind === 'tower' || kind === 'mid')) downtownBuildings.push(b);
@@ -880,33 +884,65 @@ export function createWorld(scene) {
 
   const dummy = new THREE.Object3D();
   const tmpColor = new THREE.Color();
-  function makeInstancedBox(list, texture, emissiveIntensity) {
-    const geo = new THREE.BoxGeometry(1, 1, 1);
-    const mat = new THREE.MeshStandardMaterial({
-      map: texture, emissiveMap: texture, emissive: 0xffca7a,
-      emissiveIntensity, roughness: 0.85, metalness: 0.05,
-    });
-    windowMats.push({ mat, base: emissiveIntensity }); // Builder C v4
-    const mesh = new THREE.InstancedMesh(geo, mat, list.length);
-    list.forEach((b, i) => {
-      dummy.position.set(b.x, b.h / 2, b.z);
-      dummy.scale.set(b.w, b.h, b.d);
-      dummy.rotation.set(0, 0, 0);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
-      const tint = randRange(rng, 0.85, 1.05);
-      mesh.setColorAt(i, tmpColor.setRGB(tint, tint, tint));
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    // Neon Bay v7 lesson: correct sphere + never culled.
-    secureInstanced(mesh);
-    scene.add(mesh);
-    return mesh;
+  // v6.6 item 7: art-deco pastel facades (Ocean Drive) — pink, tosca,
+  // mint, peach, lavender. A separate seeded RNG, so the pastel picks
+  // never consume the main rng and never reshuffle the neon signs,
+  // trees or benches verified in items 1-6.
+  const PASTELS = [0xffb6c1, 0x7fd8c8, 0x9fe8c0, 0xffc9a0, 0xc5b3f0];
+  const pastelRng = mulberry32(0xDEC0);
+  let pastelCount = 0; // v6.6 item 7: buildings tinted pastel, for the harness
+  // v6.6 item 7: buildings are split into a GREY mesh (dark base texture,
+  // plain tint) and a PASTEL mesh (light-base texture + pastel tint).
+  // The pastel mesh exists only when the kind has pastel buildings, so
+  // warehouses (harbor/quay, never pastel) stay one mesh. The pastel
+  // tint is a per-instance color on the LIGHT texture: a bright pastel
+  // facade in daylight. instanceColor multiplies the diffuse map ONLY —
+  // the lit windows are emissive (emissiveMap), which instanceColor
+  // does not touch (three r149 color_fragment vs emissivemap_fragment),
+  // so the windows stay warm and lit at night. Harbor/quay and
+  // RESERVED buildings keep the plain grey tint.
+  function makeInstancedBox(list, texture, emissiveIntensity, lightTexture) {
+    const grey = [];
+    const pastel = [];
+    for (const b of list) {
+      if ((b.zone === 'downtown' || b.zone === 'beach') && pastelRng() < 0.45) pastel.push(b);
+      else grey.push(b);
+    }
+    pastelCount += pastel.length;
+    const build = (sub, tex, mode) => {
+      if (!sub.length) return;
+      const geo = new THREE.BoxGeometry(1, 1, 1);
+      const mat = new THREE.MeshStandardMaterial({
+        map: tex, emissiveMap: tex, emissive: 0xffca7a,
+        emissiveIntensity, roughness: 0.85, metalness: 0.05,
+      });
+      windowMats.push({ mat, base: emissiveIntensity }); // Builder C v4
+      const mesh = new THREE.InstancedMesh(geo, mat, sub.length);
+      sub.forEach((b, i) => {
+        dummy.position.set(b.x, b.h / 2, b.z);
+        dummy.scale.set(b.w, b.h, b.d);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+        if (mode === 'pastel') {
+          mesh.setColorAt(i, tmpColor.setHex(pick(pastelRng, PASTELS)));
+        } else {
+          const tint = randRange(rng, 0.85, 1.05);
+          mesh.setColorAt(i, tmpColor.setRGB(tint, tint, tint));
+        }
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      // Neon Bay v7 lesson: correct sphere + never culled.
+      secureInstanced(mesh);
+      scene.add(mesh);
+    };
+    build(grey, texture, 'grey');
+    build(pastel, lightTexture || texture, 'pastel');
   }
-  makeInstancedBox(byKind.tower, TEX.makeBuildingTexture('tower'), 0.85);
-  makeInstancedBox(byKind.mid, TEX.makeBuildingTexture('mid'), 0.85);
-  makeInstancedBox(byKind.house, TEX.makeBuildingTexture('house'), 0.8);
+  makeInstancedBox(byKind.tower, TEX.makeBuildingTexture('tower'), 0.85, TEX.makeBuildingTextureLight('tower'));
+  makeInstancedBox(byKind.mid, TEX.makeBuildingTexture('mid'), 0.85, TEX.makeBuildingTextureLight('mid'));
+  makeInstancedBox(byKind.house, TEX.makeBuildingTexture('house'), 0.8, TEX.makeBuildingTextureLight('house'));
   makeInstancedBox(byKind.warehouse, TEX.makeBuildingTexture('warehouse'), 0.6);
   // Roof caps for warehouses: the box texture puts windows on the roof too,
   // which reads as glowing slabs from above. A thin dark cap hides that.
@@ -2083,6 +2119,8 @@ export function createWorld(scene) {
       signs: neonSigns.length, strips: neonStrips.length,
       rooflines: neonRooflines.length, windows: neonWindowCount,
     },
+    // v6.6 item 7: pastel facade count (downtown + beach, ~45%).
+    pastelCount,
     nearestSidewalk: api.nearestSidewalk,
     collides: api.collides,
     isInWater: api.isInWater,
