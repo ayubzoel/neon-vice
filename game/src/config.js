@@ -97,9 +97,12 @@ export const CONFIG = {
   //   Vice 1★ 2 foot | 2★ 2 foot+1 car  | 3★ 3+2 | 4★ 3+3        | 5★ 4+4
   // Decay: 25 s quiet per star (Bay: 45 s), and only while no police unit
   // can see the player (sightRange 70 m; Bay: 150 m on a 9600 m map).
+  // v6.3: the silent per-star decay is REPLACED by a visible escape
+  // timer (see combat.js): stay unseen for escapeSeconds[wanted] and
+  // ALL stars clear at once; get seen again and the timer resets.
   wanted: {
     max: 5,
-    decaySeconds: 25,
+    escapeSeconds: { 1: 5, 2: 8, 3: 12, 4: 16, 5: 20 },
     sightRange: 70,
     tiers: [
       { foot: 0, cars: 0 },

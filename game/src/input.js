@@ -34,6 +34,15 @@ const ACTION_KEYS = {
   Space: 'jump',
   Digit1: 'weapon1',
   Digit2: 'weapon2',
+  // v6.3: digits 3-9 select a map destination by number — but ONLY while
+  // the map is open (main.js paused branch); while playing they do nothing.
+  Digit3: 'dest3',
+  Digit4: 'dest4',
+  Digit5: 'dest5',
+  Digit6: 'dest6',
+  Digit7: 'dest7',
+  Digit8: 'dest8',
+  Digit9: 'dest9',
   Escape: 'pause',
   KeyP: 'pause',
 };
@@ -60,6 +69,10 @@ const ACTION_LABELS = {
   map: 'Open map', backpack: 'Open backpack / phone', phone: 'Open backpack / phone',
   mute: 'Mute / unmute', reload: 'Reload', jump: 'Jump',
   weapon1: 'Select pistol', weapon2: 'Select SMG', pause: 'Pause / settings',
+  dest3: 'Select map destination 3', dest4: 'Select map destination 4',
+  dest5: 'Select map destination 5', dest6: 'Select map destination 6',
+  dest7: 'Select map destination 7', dest8: 'Select map destination 8',
+  dest9: 'Select map destination 9',
   gas: 'Gas — touch pedal while driving', brake: 'Brake & reverse — touch pedal while driving',
   camOrbit: 'Orbit camera — drag empty screen / mouse drag (360°, smooth)',
 };

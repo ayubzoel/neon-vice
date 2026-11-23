@@ -190,6 +190,51 @@ export function createWorld(scene) {
   park.position.set((parkX0 + parkX1) / 2, 0.02, (parkZ0 + parkZ1) / 2);
   scene.add(park);
 
+  // ---- Flyover gardens (v6.3) ------------------------------------------
+  // Four corner plots under/next to the two flyovers, OUTSIDE every road,
+  // ramp, turn lane and sidewalk. Each rect was verified empty against
+  // the ACTUAL building footprints (world.collides grid scan, 0.5 m step)
+  // and road clearance (nearest road centreline > half-width + 4 m):
+  //   (60,0) SW: the plaza cell (no buildings) · (60,0) SE: gap between plots
+  //   (300,0) NW: open block · (300,0) SE: gap between plots
+  // gapSide: the hedge edge facing the nearest road, with ONE foot gap
+  // (4.4 m wide, 0.6 m bollard in the middle -> 1.9 m clear each side).
+  // NOTE on the gap width: the spec's 0.7 m per side cannot pass a player
+  // (radius 0.6 needs a >= 1.2 m slot under collides()); 1.9 m passes the
+  // player with 0.7 m of steering slack, while a car (collision radius
+  // 1.0, centre + nose + tail) needs >= 2.0 m and stays out.
+  const FLYOVER_GARDENS = [
+    { x0: 30, x1: 48, z0: 12, z1: 30, gapSide: 'E', gapC: 21 },
+    { x0: 72, x1: 84, z0: 72, z1: 84, gapSide: 'W', gapC: 78 },
+    { x0: 270, x1: 288, z0: -30, z1: -12, gapSide: 'E', gapC: -21 },
+    { x0: 324, x1: 336, z0: 36, z1: 48, gapSide: 'W', gapC: 42 },
+  ];
+  // Garden grass + a 2 m path slab from the gap to the garden centre.
+  for (const g of FLYOVER_GARDENS) {
+    const gg = new THREE.Mesh(
+      new THREE.PlaneGeometry(g.x1 - g.x0, g.z1 - g.z0),
+      new THREE.MeshStandardMaterial({ map: TEX.makeGrassTexture(), roughness: 1, metalness: 0 }),
+    );
+    gg.rotation.x = -Math.PI / 2;
+    gg.position.set((g.x0 + g.x1) / 2, 0.02, (g.z0 + g.z1) / 2);
+    scene.add(gg);
+    const cx = (g.x0 + g.x1) / 2;
+    const alongX = g.gapSide === 'E' || g.gapSide === 'W';
+    const edge = g.gapSide === 'E' ? g.x1 : g.gapSide === 'W' ? g.x0 : g.z1;
+    const pathLen = Math.abs(edge - (alongX ? cx : (g.z0 + g.z1) / 2));
+    const path = new THREE.Mesh(
+      new THREE.PlaneGeometry(alongX ? pathLen : 2, alongX ? 2 : pathLen),
+      new THREE.MeshStandardMaterial({ map: TEX.makeConcreteTexture(), roughness: 0.9, metalness: 0 }),
+    );
+    path.rotation.x = -Math.PI / 2;
+    path.position.set(
+      alongX ? (cx + edge) / 2 : cx,
+      0.03,
+      alongX ? g.gapC : ((g.z0 + g.z1) / 2 + edge) / 2,
+    );
+    scene.add(path);
+  }
+
   // Lighter concrete plaza disc at the spawn (kept from the scaffold).
   const plaza = new THREE.Mesh(
     new THREE.CircleGeometry(CONFIG.world.plazaRadius, 48),
@@ -910,6 +955,13 @@ export function createWorld(scene) {
       });
     }
   }
+  // Garden lamps (v6.3): one lamp just inside each garden gap, so the
+  // entrance reads at night. Poles are visual only, like street lamps.
+  for (const g of FLYOVER_GARDENS) {
+    const lx = g.gapSide === 'E' ? g.x1 - 1.5 : g.gapSide === 'W' ? g.x0 + 1.5 : (g.x0 + g.x1) / 2;
+    const lz = g.gapSide === 'E' || g.gapSide === 'W' ? g.gapC + 2.5 : (g.z0 + g.z1) / 2;
+    lampSpots.push({ x: lx, z: lz });
+  }
   {
     const poleGeo = new THREE.CylinderGeometry(0.09, 0.12, 6, 6);
     const poleMat = new THREE.MeshStandardMaterial({ color: 0x23262c, roughness: 0.6, metalness: 0.5 });
@@ -1018,6 +1070,19 @@ export function createWorld(scene) {
     }
     if (!placed) treesDropped += 1;
   }
+  // Garden oaks (v6.3): 4 in the 18 m gardens, 2 in the 12 m ones, at the
+  // corners clear of the path and benches. clearOfRoads is a belt-and-
+  // braces check — the rects were pre-verified empty (probe v4, 0.5 m).
+  for (const g of FLYOVER_GARDENS) {
+    const big = (g.x1 - g.x0) >= 18;
+    const spots = big
+      ? [[g.x0 + 4, g.z0 + 4], [g.x1 - 4, g.z0 + 4], [g.x0 + 4, g.z1 - 4], [g.x1 - 4, g.z1 - 4]]
+      : [[g.x0 + 3.5, g.z0 + 3.5], [g.x1 - 3.5, g.z1 - 3.5]];
+    for (const [tx, tz] of spots) {
+      if (clearOfRoads(tx, tz)) addOak(tx, tz);
+      else treesDropped += 1;
+    }
+  }
   function makeTrunks(list, mat) {
     const geo = new THREE.CylinderGeometry(0.2, 0.3, 1, 6);
     const mesh = new THREE.InstancedMesh(geo, mat, list.length);
@@ -1073,6 +1138,14 @@ export function createWorld(scene) {
   for (let i = 0; i < 6; i++) {
     benches.push({ x: 436, z: -300 + i * 120 + randRange(rng, -10, 10), rotY: -Math.PI / 2 });
   }
+  // Garden benches (v6.3): one facing the path per garden, two in the
+  // 18 m gardens (benches are visual only, like the park benches).
+  for (const g of FLYOVER_GARDENS) {
+    const cx = (g.x0 + g.x1) / 2;
+    const cz = (g.z0 + g.z1) / 2;
+    benches.push({ x: cx, z: cz - 3, rotY: 0 });
+    if (g.x1 - g.x0 >= 18) benches.push({ x: cx, z: cz + 3, rotY: Math.PI });
+  }
   {
     const geo = new THREE.BoxGeometry(1.8, 0.45, 0.6);
     const mat = new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 0.9 });
@@ -1087,6 +1160,75 @@ export function createWorld(scene) {
     mesh.instanceMatrix.needsUpdate = true;
     secureInstanced(mesh);
     scene.add(mesh);
+  }
+  // ---- Flyover garden hedges + bollards (v6.3) -------------------------
+  // A low hedge ring (0.9 m high, 0.5 m thick) around each garden, in
+  // `colliders` so cars AND pedestrians are blocked — except for ONE foot
+  // gap on the road-facing edge. The gap is 4.4 m wide with a 0.6 m
+  // bollard in the middle: 1.9 m clear on each side, so a player on foot
+  // (radius 0.6) walks in while a car (radius 1.0, centre + nose + tail)
+  // cannot. The hedge sits 0.5 m inside the verified rect, so no segment
+  // can touch a road, ramp, turn lane or sidewalk.
+  {
+    const GAP_W = 4.4;
+    const BOL_W = 0.6;
+    const hedgeGeos = [];
+    const bollards = [];
+    for (const g of FLYOVER_GARDENS) {
+      const hx0 = g.x0 + 0.5;
+      const hx1 = g.x1 - 0.5;
+      const hz0 = g.z0 + 0.5;
+      const hz1 = g.z1 - 0.5;
+      const segs = []; // [ax, az, bx, bz] hedge centre-lines
+      segs.push([hx0, hz0, hx1, hz0]); // north edge
+      segs.push([hx0, hz1, hx1, hz1]); // south edge
+      for (const [ex, isGap] of [[hx1, g.gapSide === 'E'], [hx0, g.gapSide === 'W']]) {
+        if (!isGap) { segs.push([ex, hz0, ex, hz1]); continue; }
+        const g0 = g.gapC - GAP_W / 2;
+        const g1 = g.gapC + GAP_W / 2;
+        segs.push([ex, hz0, ex, g0]);
+        segs.push([ex, g1, ex, hz1]);
+        bollards.push({ x: ex, z: g.gapC });
+        colliders.push({
+          minX: ex - BOL_W / 2, maxX: ex + BOL_W / 2,
+          minZ: g.gapC - BOL_W / 2, maxZ: g.gapC + BOL_W / 2,
+        });
+      }
+      for (const [ax, az, bx, bz] of segs) {
+        const alongX = az === bz;
+        const len = alongX ? bx - ax : bz - az;
+        if (len <= 0) continue;
+        const geo = new THREE.BoxGeometry(len, 0.9, 0.5);
+        if (!alongX) geo.rotateY(Math.PI / 2);
+        geo.translate((ax + bx) / 2, 0.45, (az + bz) / 2);
+        hedgeGeos.push(geo);
+        if (alongX) colliders.push({ minX: ax, maxX: bx, minZ: az - 0.25, maxZ: az + 0.25 });
+        else colliders.push({ minX: ax - 0.25, maxX: ax + 0.25, minZ: az, maxZ: bz });
+      }
+    }
+    if (hedgeGeos.length) {
+      const mesh = new THREE.Mesh(
+        mergeGeometries(hedgeGeos),
+        new THREE.MeshStandardMaterial({ color: 0x166534, roughness: 1, metalness: 0 }),
+      );
+      mesh.frustumCulled = false;
+      scene.add(mesh);
+    }
+    if (bollards.length) {
+      const geo = new THREE.CylinderGeometry(0.25, 0.3, 0.9, 8);
+      const mat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.5, metalness: 0.6 });
+      const inst = new THREE.InstancedMesh(geo, mat, bollards.length);
+      bollards.forEach((b, i) => {
+        dummy.position.set(b.x, 0.45, b.z);
+        dummy.scale.set(1, 1, 1);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        inst.setMatrixAt(i, dummy.matrix);
+      });
+      inst.instanceMatrix.needsUpdate = true;
+      secureInstanced(inst);
+      scene.add(inst);
+    }
   }
   {
     const spots = [];
@@ -1294,6 +1436,7 @@ export function createWorld(scene) {
     vital: vitalHList.length + vitalPList.length,
     roads: roadGraph.segments.length,
     flyovers: FLYOVERS.length,
+    gardens: FLYOVER_GARDENS.length,
   };
 
   const loadMs = performance.now() - t0;
@@ -1311,6 +1454,7 @@ export function createWorld(scene) {
     spawn,
     roadGraph,
     flyovers: FLYOVERS.map((f) => ({ ...f, deckH: FLYOVER.deckH, rampLen: FLYOVER.rampLen, width: FLYOVER.width, deckHalf: FLYOVER.deckHalf, flyLaneX: FLYOVER.flyLaneX })),
+    flyoverGardens: FLYOVER_GARDENS,
     // v6: steering-target lane shift at flyover intersections (see
     // laneTarget above). Exposed for the traffic drivers (vehicles.js /
     // ambient.js) and the debug API.
@@ -1352,6 +1496,7 @@ export function createWorld(scene) {
     counts,
     roadGraph,
     flyovers: api.flyovers,
+    flyoverGardens: FLYOVER_GARDENS,
     destinations,
     spawn,
     boats,

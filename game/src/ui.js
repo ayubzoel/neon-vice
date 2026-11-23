@@ -29,6 +29,7 @@ export const I18N = {
     resetConfirm: 'Delete all progress? This cannot be undone.',
     confirmDelete: 'Yes, delete', loadedSave: 'Save loaded.',
     noSaveToLoad: 'No save to load.', progressDeleted: 'Progress deleted.',
+    escaping: 'ESCAPING...', escaped: 'You escaped!',
   },
   id: {
     money: 'Uang', wanted: 'Buronan', hp: 'Darah', ammo: 'Peluru', objective: 'Misi',
@@ -52,6 +53,7 @@ export const I18N = {
     resetConfirm: 'Hapus semua progres? Tidak bisa dibatalkan.',
     confirmDelete: 'Ya, hapus', loadedSave: 'Save dimuat.',
     noSaveToLoad: 'Tidak ada save untuk dimuat.', progressDeleted: 'Progres dihapus.',
+    escaping: 'KABUR...', escaped: 'Berhasil kabur!',
   },
 };
 
@@ -77,10 +79,24 @@ export function createUI(settings) {
     const debtEl = $('hudDebt');
     if (debtEl) debtEl.textContent = `${t('debt')}: $${CONFIG.money.debt.toLocaleString()}`;
   }
-  function setWanted(n) {
+  function setWanted(n, esc) {
     const el = $('hudWanted');
     if (el) el.textContent = '★'.repeat(n) + '☆'.repeat(CONFIG.wanted.max - n);
     el.style.color = n > 0 ? '#ef4444' : '#94a3b8';
+    // v6.3: while the escape timer runs the stars blink (~2 Hz) so the
+    // player can see at a glance that the heat is fading.
+    if (el) el.style.opacity = esc && esc.escaping ? (Math.floor(Date.now() / 250) % 2 === 0 ? '1' : '0.3') : '1';
+  }
+  // v6.3 escape meter: label + progress bar, shown only while escaping.
+  function setEscape(esc) {
+    const el = $('hudEscape');
+    if (!el) return;
+    if (!esc || !esc.escaping) { el.classList.add('hidden'); return; }
+    el.classList.remove('hidden');
+    const label = $('hudEscapeLabel');
+    if (label) label.textContent = `${t('escaping')} ${Math.round(esc.progress * 100)}%`;
+    const bar = $('hudEscapeBar');
+    if (bar) bar.style.width = `${Math.round(esc.progress * 100)}%`;
   }
   function setHp(hp, max) {
     const bar = $('hudHpBar');
@@ -281,7 +297,7 @@ export function createUI(settings) {
 
   return {
     t, setLang, get lang() { return lang; },
-    setMoney, setWanted, setHp, setAmmo, setObjective, setClock, setAmbient, setGps, toast,
+    setMoney, setWanted, setEscape, setHp, setAmmo, setObjective, setClock, setAmbient, setGps, toast,
     setBannerHint, dismissBanner, showBanner, toggleBanner,
     get bannerDismissed() { return bannerDismissed; },
     drawMinimap,

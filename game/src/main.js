@@ -70,6 +70,7 @@ function normalizeWorld(raw) {
       : (x, z) => x > CONFIG.water.x0 - 2,
     roadGraph: raw.roadGraph || null,
     flyovers: raw.flyovers || [],
+    flyoverGardens: raw.flyoverGardens || [],
     // v6: lane-shifted steering target at flyover intersections
     // (world.js laneTarget). Forwarded so the traffic drivers
     // (vehicles.js / ambient.js) and the debug hook can use it.
@@ -752,6 +753,29 @@ function closeMap() {
   paused = false;
   if (overlay === 'map') overlay = null;
 }
+// v6.3: tapping a pin on the full map sets the GPS. pointerdown (not
+// click) so touch on phones registers without delay; the handler only
+// acts while the map is open, and an empty-space tap does nothing (the
+// GPS is never cleared by accident). Mission diamond first, then
+// destination dots — see mapSys.hitTest for the radii. This REPLACES the
+// old `click` handler (removed in v6.3): it only knew destinations, and
+// its 60 px "fat-finger" fallback hijacked taps on the mission diamond
+// (e.g. a tap dead-centre on Rico's Bar set GPS to RS Pantai instead),
+// so a tap on the mission pin could never win.
+document.getElementById('mapCanvas')?.addEventListener('pointerdown', (e) => {
+  if (!mapSys.isOpen) return;
+  const hit = mapSys.hitTest(e.currentTarget, e.clientX, e.clientY);
+  if (!hit) return;
+  if (hit.type === 'mission') {
+    const stage = missions.currentStage();
+    const label = stage?.text || 'Mission Target';
+    mapSys.setGpsTarget(hit.x, hit.z, label);
+    ui.toast(`GPS set: ${label}`);
+  } else {
+    mapSys.setGps(hit.name);
+    ui.toast(`GPS set: ${hit.name}`);
+  }
+});
 // ---- Settings (in-game pause panel) ----
 // Opens over the game and pauses it (overlay 'settings'); from the title
 // screen it opens without pausing anything. Every open re-syncs the
@@ -812,7 +836,24 @@ function step(dt) {
       else if (overlay === 'shop') closeShop();
       else if (overlay === 'settings') closeSettings();
       else if (state !== 'playing') closeSettings();
-    } else if (paused && overlay === 'map' && pressed.has('map')) closeMap();
+    } else if (paused && overlay === 'map') {
+      if (pressed.has('map')) closeMap();
+      else {
+        // v6.3: number keys pick a destination while the map is open
+        // (1/2 reuse the weapon actions — the game is paused, so no
+        // weapon switch can fire; 3-9 are the dest3-9 actions).
+        let idx = -1;
+        if (pressed.has('weapon1')) idx = 0;
+        else if (pressed.has('weapon2')) idx = 1;
+        else for (let n = 3; n <= 9; n++) {
+          if (pressed.has(`dest${n}`)) { idx = n - 1; break; }
+        }
+        if (idx >= 0) {
+          const d = mapSys.setGpsByIndex(idx);
+          if (d) ui.toast(`GPS set: ${d.name}`);
+        }
+      }
+    }
     else if (paused && overlay === 'phone' && (pressed.has('phone') || pressed.has('backpack'))) closePhone();
     else if (paused && overlay === 'shop' && pressed.has('interact')) closeShop();
     return;
@@ -914,6 +955,9 @@ function step(dt) {
   applyAim();
   if ((frameInput.fire || (mouseDown && !input.isCamDragging())) && !driving && !player.swimming) combat.shoot();
   combat.update(dt, gameTime, !!driving);
+  // v6.3: an escape that just completed toasts once (combat owns the
+  // timer; main owns the UI). Police dispersal is the wanted===0 branch.
+  if (combat.takeEscapeEvent()) ui.toast(ui.t('escaped'), 4200);
 
   // Missions + weather.
   missions.update(dt);
@@ -937,7 +981,9 @@ function updateHud(dt) {
   document.getElementById('hudPos').textContent = `x ${p.x.toFixed(0)} · z ${p.z.toFixed(0)} · ${player.speed.toFixed(1)} m/s`;
   document.getElementById('hudFps').textContent = `${fpsShown} FPS · ${weather.clockText()}`;
   ui.setMoney(money);
-  ui.setWanted(combat.wanted);
+  const esc = combat.escapeInfo();
+  ui.setWanted(combat.wanted, esc);
+  ui.setEscape(esc);
   ui.setHp(player.hp, player.maxHp);
   ui.setAmmo(driving ? '—' : `${combat.weapons[combat.current].name} ${combat.ammoText()}${combat.isReloading() ? ' …' : ''}`);
   ui.setClock(weather.clockText(), weather.raining);
@@ -1076,6 +1122,17 @@ function frame(now) {
         police: combat.police.filter((p) => !p.dead).length,
         policeCars: combat.policeCars.filter((c) => !c.dead).length,
         policeCanSee: combat.policeCanSee,
+        // v6.3 escape state (debug API): escaping, 0..1 progress, seconds
+        // needed at this wanted level, nearest living police unit (m/null).
+        ...(() => {
+          const e = combat.escapeInfo();
+          return {
+            escaping: e.escaping,
+            escapeProgress: +e.progress.toFixed(3),
+            escapeNeeded: e.needed,
+            nearestPoliceDist: e.nearestPoliceDist,
+          };
+        })(),
         speed: driving ? Math.abs(driving.speed) : player.speed,
         mission: missions.status, missionId: missions.currentDef()?.id ?? null,
         driving: !!driving, hour: weather.hour, phase: weather.phaseName(), raining: weather.raining,
@@ -1338,52 +1395,6 @@ document.getElementById('btnQuickPack').addEventListener('click', () => {
   if (state === 'playing' && !paused) openPack('backpack');
 });
 document.getElementById('btnQuickSet').addEventListener('click', openSettings);
-document.getElementById('mapCanvas').addEventListener('click', (e) => {
-  const rect = e.target.getBoundingClientRect();
-  const canvasEl = e.target;
-  // BUG A fix: e.clientX/Y are CSS pixels in the DISPLAYED canvas
-  // (shrunk by #mapCanvas { max-width: 94vw; max-height: 78vh }), while
-  // destinations are projected in canvas ATTRIBUTE pixels
-  // (canvasEl.width/height, up to 900x700). Scale the click into
-  // attribute space first, or every click lands ~10% off its target.
-  const x = (e.clientX - rect.left) * (canvasEl.width / rect.width);
-  const y = (e.clientY - rect.top) * (canvasEl.height / rect.height);
-  // Nearest destination in canvas space (recompute the same projection).
-  const W = CONFIG.world.width;
-  const D = CONFIG.world.depth;
-  const scale = Math.min(canvasEl.width / W, canvasEl.height / D) * 0.92;
-  const ox = (canvasEl.width - W * scale) / 2;
-  const oy = (canvasEl.height - D * scale) / 2;
-  const dests = mapSys.destinations();
-  let best = null;
-  let bestIdx = -1;
-  let bestD = 30;
-  dests.forEach((d, i) => {
-    const mx = ox + (d.x + W / 2) * scale;
-    const my = oy + (d.z + D / 2) * scale;
-    const dist = Math.hypot(mx - x, my - y);
-    if (dist < bestD) { bestD = dist; best = d; bestIdx = i; }
-  });
-  if (best) {
-    mapSys.setGps(best.name);
-    ui.toast(`GPS set: ${best.name}`);
-    return;
-  }
-  // Fallback for fat-finger taps: nearest destination within 60 px still
-  // counts, via setGpsByIndex (previously had no callers at all).
-  let nearIdx = -1;
-  let nearD = 60;
-  dests.forEach((d, i) => {
-    const mx = ox + (d.x + W / 2) * scale;
-    const my = oy + (d.z + D / 2) * scale;
-    const dist = Math.hypot(mx - x, my - y);
-    if (dist < nearD) { nearD = dist; nearIdx = i; }
-  });
-  if (nearIdx >= 0) {
-    const t = mapSys.setGpsByIndex(nearIdx);
-    if (t) ui.toast(`GPS set: ${t.name}`);
-  }
-});
 document.getElementById('volSlider').addEventListener('input', (e) => {
   settings.volume = Number(e.target.value);
   audio.setVolume(settings.volume);

@@ -13,6 +13,9 @@ export function createMap(world) {
   const D = CONFIG.world.depth;
   let gpsTarget = null; // {x, z, name}
   let open = false;
+  // Last drawn pin positions in canvas pixels (refreshed by every draw):
+  // the tap handler hit-tests against these, so pins are never hardcoded.
+  let lastPins = null;
 
   function destinations() {
     if (world.destinations && world.destinations.length) {
@@ -77,6 +80,15 @@ export function createMap(world) {
         const [x1, y1] = toMap(f.x, f.z - 60);
         const [x2, y2] = toMap(f.x, f.z + 60);
         ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      }
+    }
+    // Flyover gardens (v6.3): green patches so the parks read on the map.
+    if (world.flyoverGardens) {
+      ctx.fillStyle = '#166534';
+      for (const g of world.flyoverGardens) {
+        const [gx, gy] = toMap(g.x0, g.z0);
+        const [gx2, gy2] = toMap(g.x1, g.z1);
+        ctx.fillRect(gx, gy, gx2 - gx, gy2 - gy);
       }
     }
     // GPS route: straight line (road routing is the 3D arrow's job).
@@ -183,6 +195,17 @@ export function createMap(world) {
     ctx.moveTo(0, -10); ctx.lineTo(7, 8); ctx.lineTo(-7, 8); ctx.closePath();
     ctx.fill();
     ctx.restore();
+    // Remember where the pins were drawn (canvas pixels) for tap hit-test.
+    lastPins = {
+      dests: dests.map((d) => {
+        const [mx, my] = toMap(d.x, d.z);
+        return { x: mx, y: my, name: d.name };
+      }),
+      mission: missionTarget ? (() => {
+        const [mx, my] = toMap(missionTarget.x, missionTarget.z);
+        return { x: mx, y: my, wx: missionTarget.x, wz: missionTarget.z };
+      })() : null,
+    };
     return dests;
   }
 
@@ -196,6 +219,34 @@ export function createMap(world) {
       const d = destinations().find((x) => x.name === name);
       if (d) gpsTarget = d;
       return gpsTarget;
+    },
+    // GPS to an arbitrary point (e.g. the mission target, which is not a
+    // named destination): the 3D arrow + HUD distance follow it the same way.
+    setGpsTarget(x, z, name) {
+      gpsTarget = { x, z, name: name || 'Target' };
+      return gpsTarget;
+    },
+    // v6.3 tap hit-test (pointerdown on #mapCanvas): mission diamond first
+    // (radius ~20 canvas px), then destination dots (~12 px). Client
+    // coords are converted with the canvas rect + canvas/CSS scale, so a
+    // CSS-scaled canvas still hit-tests correctly. Returns null on empty
+    // space (the caller must NOT clear the GPS then).
+    hitTest(canvas, clientX, clientY) {
+      if (!lastPins) return null;
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      const x = (clientX - rect.left) * (canvas.width / rect.width);
+      const y = (clientY - rect.top) * (canvas.height / rect.height);
+      if (lastPins.mission) {
+        const m = lastPins.mission;
+        if (Math.hypot(x - m.x, y - m.y) <= 20) {
+          return { type: 'mission', x: m.wx, z: m.wz };
+        }
+      }
+      for (const p of lastPins.dests) {
+        if (Math.hypot(x - p.x, y - p.y) <= 12) return { type: 'dest', name: p.name };
+      }
+      return null;
     },
     setGpsByIndex(i) {
       const d = destinations()[i];

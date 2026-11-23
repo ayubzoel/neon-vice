@@ -13,6 +13,11 @@
   #hud p { margin: 2px 0; font-size: 14px; color: #e2e8f0; }
   #hudMoney { font-size: 20px !important; font-weight: 800; color: #4ade80 !important; }
   #hudWanted { font-size: 18px !important; letter-spacing: 2px; }
+  /* v6.3 escape meter: label + thin progress bar under the wanted stars. */
+  #hudEscape { font-size: 12px; font-weight: 800; color: #4ade80; }
+  #hudEscape.hidden { display: none; }
+  #hudEscapeTrack { width: 120px; height: 6px; background: #334155; border-radius: 3px; margin-top: 3px; overflow: hidden; }
+  #hudEscapeBar { height: 100%; width: 0%; background: #22c55e; border-radius: 3px; }
   #hudObjective { color: #fbbf24 !important; font-weight: 600; max-width: 46vw; }
   #hudHpWrap { width: 150px; height: 10px; background: rgba(255,255,255,0.2); border-radius: 5px; overflow: hidden; margin: 6px 0 8px; }
   #hudHpBar { height: 100%; width: 100%; background: #22c55e; }
@@ -143,6 +148,7 @@
   <p id="hudMoney">$250</p>
   <p id="hudDebt">Debt to Rico: $50,000</p>
   <p id="hudWanted">☆☆☆</p>
+  <div id="hudEscape" class="hidden"><span id="hudEscapeLabel"></span><div id="hudEscapeTrack"><div id="hudEscapeBar"></div></div></div>
   <p id="hudObjective"></p>
   <p id="hudAmmo">Pistol 12 / 60</p>
   <p id="hudClock">21:00</p>

@@ -170,9 +170,44 @@ export function createCombat(scene, world, player, audio) {
   const enemies = [];
   const police = [];
   let wanted = 0;
-  let wantedTimer = 0; // counts quiet time (no police can see) for decay
+  // v6.3 escape timer (replaces the old per-star decay): counts how long
+  // the player has stayed unseen (no police unit in sight range). When it
+  // reaches escapeSeconds[wanted], ALL stars clear at once. Being seen
+  // again, or a new crime, resets it to 0 — there is no partial progress.
+  let escapeTimer = 0;
+  let escapeEvent = false; // set when an escape completes; main.js toasts it once
   let lastCrimeAt = -99;
   let policeCanSee = false;
+
+  function escapeNeeded() {
+    const table = CONFIG.wanted.escapeSeconds || { 1: 5, 2: 8, 3: 12, 4: 16, 5: 20 };
+    return table[wanted] || 5;
+  }
+
+  function nearestPoliceDist() {
+    const px = player.group.position.x;
+    const pz = player.group.position.z;
+    let best = null;
+    for (const u of [...police, ...policeCars]) {
+      if (u.dead) continue;
+      const d = Math.hypot(u.mesh.position.x - px, u.mesh.position.z - pz);
+      if (best === null || d < best) best = d;
+    }
+    return best === null ? null : +best.toFixed(1);
+  }
+
+  // Snapshot for the HUD + debug API (stats()): whether the escape timer
+  // is running, its 0..1 progress, the seconds needed at this wanted
+  // level, and the nearest living police unit (foot or car).
+  function escapeInfo() {
+    const needed = wanted > 0 ? escapeNeeded() : 0;
+    return {
+      escaping: wanted > 0 && !policeCanSee,
+      progress: needed > 0 ? Math.max(0, Math.min(1, escapeTimer / needed)) : 0,
+      needed,
+      nearestPoliceDist: nearestPoliceDist(),
+    };
+  }
 
   // --- Visible bullet tracers (Builder B v3) ------------------------------
   // One thin emissive box per tracer, pooled (10) and reused: a police shot
@@ -642,7 +677,7 @@ export function createCombat(scene, world, player, audio) {
   function commitCrime(stars) {
     wanted = Math.min(CONFIG.wanted.max, Math.max(wanted, stars));
     lastCrimeAt = gameTime;
-    wantedTimer = 0;
+    escapeTimer = 0; // a new crime restarts the escape from zero
   }
 
   function shoot() {
@@ -805,6 +840,13 @@ export function createCombat(scene, world, player, audio) {
       };
     },
     commitCrime,
+    escapeInfo,
+    // True once when an escape completes (main.js toasts it); consumes it.
+    takeEscapeEvent() {
+      const e = escapeEvent;
+      escapeEvent = false;
+      return e;
+    },
     shoot,
     reload,
     setAiming,
@@ -813,6 +855,7 @@ export function createCombat(scene, world, player, audio) {
     setWanted(n) {
       wanted = Math.max(0, Math.min(CONFIG.wanted.max, n));
       lastCrimeAt = gameTime;
+      escapeTimer = 0; // debug set / respawn resets the escape timer too
     },
     switchWeapon(kind) {
       if (!weapons[kind] || !weapons[kind].owned) return false;
@@ -883,9 +926,11 @@ export function createCombat(scene, world, player, audio) {
       // mission's targets, not the wanted force.
       updateNpcs(dt, wanted > 0 ? police : police.filter((p) => p.mission));
       updateTracers(dt);
-      // Wanted decay (Neon Bay rule): heat fades ONLY while no police unit
-      // can see the player — quiet for decaySeconds with nobody in sight
-      // range -> -1 star. Hiding / outrunning the cops is how you lose them.
+      // Wanted escape (v6.3, replaces the old per-star decay): the timer
+      // runs ONLY while no police unit can see the player. When it
+      // reaches escapeSeconds[wanted] every star clears AT ONCE and the
+      // wanted===0 branch below disperses the police. Being seen again
+      // resets the timer to 0 — no partial credit.
       const sight = CONFIG.wanted.sightRange || 70;
       const px = player.group.position.x;
       const pz = player.group.position.z;
@@ -900,12 +945,13 @@ export function createCombat(scene, world, player, audio) {
           }
         }
         if (policeCanSee) {
-          wantedTimer = 0;
+          escapeTimer = 0;
         } else {
-          wantedTimer += dt;
-          if (wantedTimer >= CONFIG.wanted.decaySeconds) {
-            wanted -= 1;
-            wantedTimer = 0;
+          escapeTimer += dt;
+          if (escapeTimer >= escapeNeeded()) {
+            wanted = 0;
+            escapeTimer = 0;
+            escapeEvent = true;
           }
         }
         // Keep the tier force on the player (foot + cars per star).
