@@ -442,6 +442,14 @@ export function createMissions(scene, world, ctx) {
     ctx.audio.cash();
     hideBeacon();
     ctx.onMessage(`Mission complete: ${def.title} — +$${def.reward.toLocaleString()}`);
+    // v6.5 fix: M9 ends by losing the heat — if any wanted level survived
+    // the evade (e.g. a fresh crime in the last seconds, before the v6.3
+    // escape timer could clear it), clear it here through the same
+    // setter the escape path uses, so the mission cannot end with stars
+    // still on. In the normal flow wanted is already 0 by now (the
+    // escape clears it after ~6 s unseen and main.js toasts
+    // "You escaped!"), so this only fires for the re-crime edge case.
+    if (def.id === 9 && ctx.combat && ctx.combat.wanted > 0) ctx.combat.setWanted(0);
     ctx.onObjective('');
     ctx.onMissionComplete(def);
     if (def.id === 12) {
@@ -608,7 +616,14 @@ export function createMissions(scene, world, ctx) {
       ctx.onObjective(`Race: checkpoint ${stageState.cpIndex + 1}/${(stageState.checkpoints || stage.checkpoints).length} — ${Math.ceil(stageState.timeLeft)}s left`);
       if (stageState.timeLeft <= 0) failMission('Out of time');
     } else if (stage.type === 'evade') {
-      stageState.timeLeft -= dt;
+      // v6.5 fix: the countdown runs ONLY while no police unit can see
+      // the player. combat.policeCanSee is the v6.3 LOS-aware flag — the
+      // same accessor the escape timer uses, so no LOS logic is
+      // duplicated here. Standing in the open while SPOTTED freezes the
+      // timer: "stay unseen 30s" can no longer be completed by tanking
+      // gunfire. Once the v6.3 escape clears wanted (6 s unseen at 2
+      // stars) policeCanSee stays false and the timer runs out.
+      if (!ctx.combat.policeCanSee) stageState.timeLeft -= dt;
       ctx.onObjective(`Lose the heat — ${Math.ceil(stageState.timeLeft)}s`);
       if (stageState.timeLeft <= 0) advanceStage();
     }
