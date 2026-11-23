@@ -318,6 +318,32 @@ export function createMissions(scene, world, ctx) {
     return { x, z };
   }
 
+  // Snap a GOTO target so a CAR can trigger it (v6.6 item 3). The
+  // open-ground snap is road-blind: a target 40 m from the nearest road
+  // (West Docks, South Beach, Airport, East Marina) never completes by
+  // car — the player drives to the road, stops 40 m short of the 10 m
+  // trigger radius, and the "!" stays, which reads as a broken mission.
+  // So when the snapped point is further than (radius - 2) from the
+  // nearest road, move the target ONTO the nearest road point. The
+  // beacon/marker and the trigger stay on the SAME point (stageState
+  // tx/tz), so arriving by car clears the "!" at once. Water targets
+  // are exempt (isInWater): a boat goto has no road to snap to, and
+  // moving it onto land would strand the boat.
+  function snapDrivable(x, z, radius) {
+    const spot = snap(x, z);
+    try {
+      if (ctx.world && ctx.world.isInWater && ctx.world.isInWater(spot.x, spot.z)) return spot;
+      const rg = ctx.world && ctx.world.roadGraph;
+      if (rg && rg.nearestOnRoad) {
+        const n = rg.nearestOnRoad(spot.x, spot.z);
+        if (n && typeof n.x === 'number' && n.dist > (radius || 10) - 2) {
+          return { x: n.x, z: n.z };
+        }
+      }
+    } catch { /* keep the snapped spot */ }
+    return spot;
+  }
+
   function startStage() {
     stageState = {};
     const stage = currentStage();
@@ -380,7 +406,9 @@ export function createMissions(scene, world, ctx) {
       stageState.tx = spot.x;
       stageState.tz = spot.z;
     } else if (stage.type === 'goto') {
-      const spot = snap(stage.x, stage.z);
+      // v6.6 item 3: snapDrivable, not snap — a car arriving at the
+      // nearest road must land inside the trigger radius.
+      const spot = snapDrivable(stage.x, stage.z, stage.radius || 10);
       stageState.tx = spot.x;
       stageState.tz = spot.z;
     } else if (stage.type === 'evade') {
@@ -642,11 +670,18 @@ export function createMissions(scene, world, ctx) {
     }
     const p = ctx.player.group.position;
     if (kind === 'taxi') {
-      sideJob = { kind, stage: 'pickup', from: { x: -500, z: 200 }, to: { x: 300, z: -300 }, pay: 350 };
+      // v6.6 item 3: the pickup (-500,200) is 40 m from the nearest
+      // road, so a car could never trigger it (radius 10). Snap both
+      // ends onto drivable ground (snapDrivable), like main goto stages.
+      const from = snapDrivable(-500, 200, 10);
+      const to = snapDrivable(300, -300, 10);
+      sideJob = { kind, stage: 'pickup', from, to, pay: 350 };
       placeBeacon(sideJob.from.x, sideJob.from.z);
       ctx.onObjective('Taxi: pick up the fare at West Docks');
     } else if (kind === 'package') {
-      sideJob = { kind, stage: 'deliver', from: { x: -300, z: -300 }, to: { x: 100, z: 400 }, timeLeft: 120, pay: 450 };
+      // v6.6 item 3: the drop (100,400) is 40 m from the nearest road.
+      const to = snapDrivable(100, 400, 10);
+      sideJob = { kind, stage: 'deliver', from: { x: -300, z: -300 }, to, timeLeft: 120, pay: 450 };
       placeBeacon(sideJob.to.x, sideJob.to.z);
       ctx.onObjective('Package: deliver to South Beach in 120s');
     } else if (kind === 'race') {
