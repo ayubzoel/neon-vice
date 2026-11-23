@@ -1377,6 +1377,34 @@ export function createWorld(scene) {
     }
     if (!placed) treesDropped += 1;
   }
+  // Boardwalk palms (v6.6 item 6): a palm row along the east edge of the
+  // boardwalk (x 419, 1 m from the sand), every 35 m, z offset 17.5 m
+  // from the boardwalk benches (benches at z -350..350 step 70) so a palm
+  // never sits on a bench. clearOfRoads is belt-and-braces — the
+  // boardwalk is 20+ m east of the last road end (x 400), so every palm
+  // clears; a failed check drops the palm, never plants on a road.
+  for (let z = -402.5; z <= 402.5; z += 35) {
+    if (clearOfRoads(419, z)) addPalm(419, z);
+    else treesDropped += 1;
+  }
+  // Main-road palms (v6.6 item 6): a palm row along BOTH sidewalks of
+  // the z=0 arterial (12 m wide, so the sidewalk offset is 6 + 4.6 =
+  // 10.6 m, the same offset as the street trees), x step 40 m from
+  // -520 to 380. Every candidate is checked against EVERY road segment
+  // via clearOfRoads (own street + cross streets near corners + the
+  // flyover corridors at x 60/300) — a candidate that fails is shifted
+  // by +-6/+-12 m, and dropped if no shift clears. Palms are visual
+  // only (no colliders) and share the instanced trunk/crown meshes:
+  // +0 draw calls.
+  for (const side of [1, -1]) {
+    for (let x = -520; x <= 380; x += 40) {
+      let placed = false;
+      for (const dx of [0, 6, -6, 12, -12]) {
+        if (clearOfRoads(x + dx, side * 10.6)) { addPalm(x + dx, side * 10.6); placed = true; break; }
+      }
+      if (!placed) treesDropped += 1;
+    }
+  }
   for (let i = 0; i < 40; i++) {
     // Street trees: retry segment / position / side until the candidate
     // clears ALL segments (own street + any cross street near a corner).
