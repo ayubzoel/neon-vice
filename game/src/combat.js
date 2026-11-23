@@ -180,7 +180,7 @@ export function createCombat(scene, world, player, audio) {
   let policeCanSee = false;
 
   function escapeNeeded() {
-    const table = CONFIG.wanted.escapeSeconds || { 1: 5, 2: 8, 3: 12, 4: 16, 5: 20 };
+    const table = CONFIG.wanted.escapeSeconds || { 1: 5, 2: 6, 3: 12, 4: 16, 5: 20 };
     return table[wanted] || 5;
   }
 
@@ -282,6 +282,9 @@ export function createCombat(scene, world, player, audio) {
     const needed = wanted > 0 ? escapeNeeded() : 0;
     return {
       escaping: wanted > 0 && !policeCanSee,
+      // v6.3 tune: seen again while wanted — the HUD shows SPOTTED!/
+      // TERLIHAT! in the same slot as the escape meter.
+      spotted: wanted > 0 && policeCanSee,
       progress: needed > 0 ? Math.max(0, Math.min(1, escapeTimer / needed)) : 0,
       needed,
       nearestPoliceDist: nearestPoliceDist(),

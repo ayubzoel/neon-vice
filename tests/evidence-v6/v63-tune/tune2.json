@@ -1,0 +1,80 @@
+{
+  "note": "supplement: escaping shots EN+ID, active reset, B1 retry",
+  "D2": {
+    "en": {
+      "attempt": 0,
+      "stats": {
+        "gt": 2.05,
+        "wanted": 2,
+        "police": 2,
+        "policeCars": 1,
+        "canSee": false,
+        "escaping": true,
+        "progress": 0.161,
+        "needed": 6,
+        "nearest": 27.9,
+        "nearestLos": false,
+        "driving": false,
+        "hp": 100
+      },
+      "hud": {
+        "hidden": false,
+        "label": "ESCAPING... 16%",
+        "labelColor": "rgb(74, 222, 128)",
+        "trackDisplay": "block",
+        "barWidth": "16%"
+      },
+      "labelOk": true,
+      "visibleOk": true,
+      "trackShownOk": true,
+      "greenOk": true,
+      "barOk": true
+    },
+    "id": {
+      "attempt": 0,
+      "stats": {
+        "gt": 3.62,
+        "wanted": 2,
+        "police": 2,
+        "policeCars": 1,
+        "canSee": false,
+        "escaping": true,
+        "progress": 0.158,
+        "needed": 6,
+        "nearest": 28,
+        "nearestLos": false,
+        "driving": false,
+        "hp": 100
+      },
+      "hud": {
+        "hidden": false,
+        "label": "KABUR... 16%",
+        "labelColor": "rgb(74, 222, 128)",
+        "trackDisplay": "block",
+        "barWidth": "16%"
+      },
+      "labelOk": true,
+      "visibleOk": true,
+      "trackShownOk": true,
+      "greenOk": true,
+      "barOk": true
+    }
+  },
+  "B3b": {
+    "attempt": 0,
+    "midProgress": 0.158,
+    "seenProgress": 0,
+    "afterProgress": 0,
+    "wantedAfter": 2,
+    "canSeeAfter": true,
+    "pass": true
+  },
+  "B1b": {
+    "escaped": false,
+    "durationGt": null,
+    "maxProgress": 0.743,
+    "needed": 5
+  },
+  "errors": [],
+  "external": []
+}

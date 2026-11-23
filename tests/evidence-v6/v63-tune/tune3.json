@@ -1,0 +1,10 @@
+{
+  "B1cover": {
+    "escaped": true,
+    "durationGt": 9.05,
+    "maxProgress": 0.98,
+    "resets": 1,
+    "needed": 5
+  },
+  "errors": []
+}

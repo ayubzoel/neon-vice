@@ -102,7 +102,7 @@ export const CONFIG = {
   // ALL stars clear at once; get seen again and the timer resets.
   wanted: {
     max: 5,
-    escapeSeconds: { 1: 5, 2: 8, 3: 12, 4: 16, 5: 20 },
+    escapeSeconds: { 1: 5, 2: 6, 3: 12, 4: 16, 5: 20 }, // v6.3 tune: ★2 8 -> 6 (retest: 1/3 lolos jalan kaki)
     sightRange: 70,
     tiers: [
       { foot: 0, cars: 0 },

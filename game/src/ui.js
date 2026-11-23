@@ -29,7 +29,7 @@ export const I18N = {
     resetConfirm: 'Delete all progress? This cannot be undone.',
     confirmDelete: 'Yes, delete', loadedSave: 'Save loaded.',
     noSaveToLoad: 'No save to load.', progressDeleted: 'Progress deleted.',
-    escaping: 'ESCAPING...', escaped: 'You escaped!',
+    escaping: 'ESCAPING...', escaped: 'You escaped!', spotted: 'SPOTTED!',
   },
   id: {
     money: 'Uang', wanted: 'Buronan', hp: 'Darah', ammo: 'Peluru', objective: 'Misi',
@@ -53,7 +53,7 @@ export const I18N = {
     resetConfirm: 'Hapus semua progres? Tidak bisa dibatalkan.',
     confirmDelete: 'Ya, hapus', loadedSave: 'Save dimuat.',
     noSaveToLoad: 'Tidak ada save untuk dimuat.', progressDeleted: 'Progres dihapus.',
-    escaping: 'KABUR...', escaped: 'Berhasil kabur!',
+    escaping: 'KABUR...', escaped: 'Berhasil kabur!', spotted: 'TERLIHAT!',
   },
 };
 
@@ -88,14 +88,25 @@ export function createUI(settings) {
     if (el) el.style.opacity = esc && esc.escaping ? (Math.floor(Date.now() / 250) % 2 === 0 ? '1' : '0.3') : '1';
   }
   // v6.3 escape meter: label + progress bar, shown only while escaping.
+  // v6.3 tune: when the police can see the player again, the same HUD
+  // slot shows a red SPOTTED!/TERLIHAT! label (bar hidden) so the player
+  // can tell at a glance whether their cover is working. Hidden at
+  // wanted 0 (neither escaping nor spotted).
   function setEscape(esc) {
     const el = $('hudEscape');
     if (!el) return;
-    if (!esc || !esc.escaping) { el.classList.add('hidden'); return; }
+    if (!esc || (!esc.escaping && !esc.spotted)) { el.classList.add('hidden'); return; }
     el.classList.remove('hidden');
     const label = $('hudEscapeLabel');
-    if (label) label.textContent = `${t('escaping')} ${Math.round(esc.progress * 100)}%`;
+    const track = $('hudEscapeTrack');
     const bar = $('hudEscapeBar');
+    if (esc.spotted) {
+      if (label) { label.textContent = t('spotted'); label.style.color = '#ef4444'; }
+      if (track) track.style.display = 'none';
+      return;
+    }
+    if (label) { label.textContent = `${t('escaping')} ${Math.round(esc.progress * 100)}%`; label.style.color = ''; }
+    if (track) track.style.display = '';
     if (bar) bar.style.width = `${Math.round(esc.progress * 100)}%`;
   }
   function setHp(hp, max) {
