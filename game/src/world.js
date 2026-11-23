@@ -1402,9 +1402,14 @@ export function createWorld(scene) {
   const treeCount = oakTrunks.length + palmTrunks.length;
 
   // ---- Props: benches (plaza / park / beach) + hydrants ------------------
+  // Plaza ring (v6.6 item 2): rotated 30 deg so NO bench sits on the
+  // z=0 arterial. Before, the ring at 0/60/120/... deg put two benches
+  // at (+-18,0) — dead centre on the arterial (road band z +-6). At
+  // 30/90/150/... deg the benches sit at z=+-9 / +-18 (off the asphalt;
+  // the nearest vertical road is x=+-60) and x=0 / +-15.6.
   const benches = [];
   for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2;
+    const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
     benches.push({ x: Math.cos(a) * 18, z: Math.sin(a) * 18, rotY: -a + Math.PI / 2 });
   }
   for (let i = 0; i < 8; i++) {
@@ -1786,6 +1791,35 @@ export function createWorld(scene) {
     return null;
   }
 
+  // Park spot (v6.6 item 2): open ground AND clear of every road band
+  // by the car's full footprint (nose 1.7 m + radius 1.0 = 2.7 m), so
+  // a parked car snapped out of a building can never land on — or
+  // overhang — a road. findOpenGround is road-blind: it only avoids
+  // building colliders, which is how the plaza sedan's tail ended up
+  // 0.44 m over the z=0 arterial's edge. Same spiral search, plus the
+  // road-clearance test on every candidate.
+  function findParkSpot(x, z, maxR = 60) {
+    const clear = (px, pz) => {
+      if (collides(px, pz, 1.5)) return false;
+      const n = roadGraph.nearestOnRoad(px, pz);
+      if (!n) return true;
+      const seg = roadGraph.segments[n.segment];
+      return n.dist > seg.width / 2 + 2.7;
+    };
+    if (clear(x, z) && Math.abs(x) < W / 2 - 5 && Math.abs(z) < D / 2 - 5) return { x, z };
+    for (let radius = 2; radius <= maxR; radius += 2) {
+      const steps = 16;
+      for (let k = 0; k < steps; k++) {
+        const a = (k / steps) * Math.PI * 2;
+        const px = x + Math.cos(a) * radius;
+        const pz = z + Math.sin(a) * radius;
+        if (Math.abs(px) >= W / 2 - 5 || Math.abs(pz) >= D / 2 - 5) continue;
+        if (clear(px, pz)) return { x: px, z: pz };
+      }
+    }
+    return null;
+  }
+
   // Sidewalk spots nearest to (x, z): the centre of each 3 m sidewalk strip
   // flanking the nearest road segment, nearest side first. A sidewalk point
   // is walkable by construction (between the road edge and the building
@@ -1889,6 +1923,7 @@ export function createWorld(scene) {
       return h;
     },
     findOpenGround,
+    findParkSpot,
     nearestSidewalk,
     collides,
     isInWater,
@@ -1932,6 +1967,8 @@ export function createWorld(scene) {
     world: api,
     groundHeightAt: api.groundHeightAt,
     findOpenGround: api.findOpenGround,
+    findParkSpot: api.findParkSpot,
+    benches,
     nearestSidewalk: api.nearestSidewalk,
     collides: api.collides,
     isInWater: api.isInWater,

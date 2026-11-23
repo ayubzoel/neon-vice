@@ -75,10 +75,16 @@ export function createVehicles(scene, world) {
     // Parked vehicles are snapped to open ground so they never spawn inside
     // one of Builder B's buildings. Boats are exempt: open ground for them
     // is water, and B's findOpenGround only returns walkable land.
+    // v6.6 item 2: parked cars use findParkSpot (road-aware) instead of
+    // findOpenGround (road-blind) — a car snapped out of a building must
+    // not land on, or overhang, a road. Falls back to findOpenGround
+    // when findParkSpot is unavailable (older world build).
     if (kind !== 'boat' && opts.parked !== false && world.findOpenGround) {
       try {
-        const g = world.findOpenGround(x, z, 30);
-        if (g) { x = g.x; z = g.z; }
+        const snap = world.findParkSpot
+          ? world.findParkSpot(x, z, 30)
+          : world.findOpenGround(x, z, 30);
+        if (snap) { x = snap.x; z = snap.z; }
       } catch { /* keep raw */ }
     }
     const mesh = kind === 'bike' ? makeBike(model) : kind === 'boat' ? makeBoat(model) : makeCarBody(model, kind);
@@ -114,7 +120,11 @@ export function createVehicles(scene, world) {
   const D = CONFIG.world.depth / 2;
 
   // Parked vehicles near the plaza + around the map.
-  addVehicle('sedan', 0xef4444, 12, 8, 0.4);
+  // v6.6 item 2: the plaza sedan was at (12,8) — 2 m off the z=0
+  // arterial, so its tail overhung the asphalt edge (z=6.44). Moved
+  // to (12,11): 11 m from the centreline, clear of the road band even
+  // before the findParkSpot snap.
+  addVehicle('sedan', 0xef4444, 12, 11, 0.4);
   addVehicle('coupe', 0x22d3ee, -14, 10, -0.6);
   addVehicle('bike', 0xf59e0b, 6, -12, 1.2);
   addVehicle('sedan', 0x8b5cf6, CONFIG.places.downtown.x + 8, CONFIG.places.downtown.z + 6, 0);
