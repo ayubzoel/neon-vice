@@ -687,7 +687,16 @@ export function createCombat(scene, world, player, audio) {
     // crime that raised wanted (fresh heat brings reinforcements). If the
     // player killed every cop and stayed quiet, nobody comes — that is a
     // real escape, and wanted decays.
-    const spawn = hot || ((gameTime - lastCrimeAt < 10) && foot.length + cars.length === 0);
+    // v6.4: the fresh-heat branch used to require the force to be EMPTY
+    // (foot.length + cars.length === 0), so escalating wanted while old
+    // units were still alive but far away (> sightRange, hot false)
+    // spawned nothing — the "fresh heat brings reinforcements" comment
+    // never happened. The branch is now just the 10 s window: the
+    // top-up loops below only fill the DEFICIT to the tier, so this is
+    // self-limiting, and after 10 s only `hot` spawns (unchanged).
+    // Both raisers set lastCrimeAt, so both paths top up: commitCrime
+    // (real crimes) and debug.setWanted.
+    const spawn = hot || (gameTime - lastCrimeAt < 10);
     // Shrink: when the tier drops (decay), the farthest units leave first.
     const shrink = (list, want, remove) => {
       if (list.length <= want) return;

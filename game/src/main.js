@@ -71,6 +71,8 @@ function normalizeWorld(raw) {
     roadGraph: raw.roadGraph || null,
     flyovers: raw.flyovers || [],
     flyoverGardens: raw.flyoverGardens || [],
+    medianGardens: raw.medianGardens || [],
+    medianObjects: raw.medianObjects || [],
     // v6: lane-shifted steering target at flyover intersections
     // (world.js laneTarget). Forwarded so the traffic drivers
     // (vehicles.js / ambient.js) and the debug hook can use it.

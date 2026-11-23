@@ -235,6 +235,83 @@ export function createWorld(scene) {
     scene.add(path);
   }
 
+  // ---- Median gardens under the flyover ramps (v6.4) ---------------------
+  // Ayub (13:26 WIB): the middle strip under the flyover — the ground
+  // between the two surface turn lanes — becomes a garden, at BOTH
+  // flyovers, with only 2 surface lanes left (x = f.x ± 4.5, one per
+  // direction). Per flyover the garden is TWO segments, z ±[10, 60]:
+  // the strip |z| < 10 stays open road on purpose — it is the
+  // intersection box (EW road z ±6, zebras z ±8.5, turn space). Each
+  // segment is the strip x f.x±3 (exactly the deck footprint) under
+  // one ramp (deck height 6 m at |z| = 10 falling to 0 at |z| = 60).
+  // NO oak: even the smallest oak tops out at ~6.9 m, above the 5.5 m
+  // clearance under the deck edge — shrubs/benches/short lamps only,
+  // each top checked < flyoverHeightAt(x,z) − 0.5 m (see medianObjects
+  // tops: bench 0.68 m, lamp 1.83 m, shrub ≤ 0.92 m).
+  // The strip ends are OPEN (no hedge across them): the ends are the
+  // ramp-mount corridor — cars enter the ramp from the surface at
+  // |z| ≈ 60 in the flyover lanes (x f.x±1.5) — and the intersection
+  // opening, so both must stay free of colliders. The garden is
+  // enclosed only on its long sides, by hedges at x = f.x ± 2.825
+  // (0.25 m thick -> [2.7, 2.95]): a flyover-lane car (r = 1.0 at
+  // x ±1.5) clears it by 0.2 m, a turn-lane car (r = 1.0 at x ±4.5)
+  // by 0.55 m. The hedge is THIN on purpose (v6.4 traffic-probe
+  // finding): a 0.5 m hedge at ±2.95 left only 0.3 m to the turn
+  // lane, and a traffic car's NOSE circle (1.7 m ahead, r = 1.0)
+  // clips it at ~7 deg of eastward yaw — the cars steer toward
+  // centreline nodes with a steady ~3.5 deg eastward bias plus
+  // pursuit overshoot, so three cars stalled and bounced in the
+  // turn lane until the v6.2 unstuck fired (run 1: ids 1011/1017
+  // west lane z≈-43, 1001 east lane z≈+43, plus 1016 queued on the
+  // ramp behind them). 0.55 m needs ~19 deg of yaw to clip, far
+  // above the observed ~7 deg peak; the flyover side keeps its
+  // proven 0.2 m (mounts pass). The garden interior is unchanged
+  // (hedge inner face stays at 2.7 m) — only the grass margin
+  // between hedge and turn lane grows by 0.25 m.
+  // Hedge/bollard colliders are HEIGHT-GATED (maxY 1.5,
+  // see collides()): a car on the deck/ramp (y > 1.5) passes over
+  // them; ground callers (y <= 1.5) are blocked as usual. One foot
+  // gap per segment (v6.3 pattern: 4.4 m + 0.6 m bollard -> 1.9 m
+  // sub-gaps; player r = 0.6 passes, car r = 1.0 does not) on the
+  // east side at the segment midpoint (z = ±35).
+  const MEDIAN_GARDENS = [];
+  for (const f of FLYOVERS) {
+    for (const s of [-1, 1]) {
+      MEDIAN_GARDENS.push({
+        fx: f.x, x0: f.x - 3, x1: f.x + 3,
+        z0: s > 0 ? 10 : -60, z1: s > 0 ? 60 : -10,
+        gapSide: 'E', gapC: s * 35,
+      });
+    }
+  }
+  // Verifiable object list for the harness: {kind, x, z, top}.
+  const medianObjects = [];
+
+  // Median garden grass (y = 0.07: the strip is road asphalt at 0.05,
+  // so the grass must sit just above it) + a 2 m path slab down the
+  // middle of each segment. The path ENDS at |z| = 38: beyond that the
+  // ramp is too low for a pedestrian (underside < ~1.85 m for |z| >
+  // ~40 — the same clipping a walker meets under the low ramp on the
+  // open road in v6, not new here), so the walkable garden is
+  // z ±[10, 38]; the grass/hedge/planting run the full segment.
+  for (const g of MEDIAN_GARDENS) {
+    const gg = new THREE.Mesh(
+      new THREE.PlaneGeometry(g.x1 - g.x0, g.z1 - g.z0),
+      new THREE.MeshStandardMaterial({ map: TEX.makeGrassTexture(), roughness: 1, metalness: 0 }),
+    );
+    gg.rotation.x = -Math.PI / 2;
+    gg.position.set((g.x0 + g.x1) / 2, 0.07, (g.z0 + g.z1) / 2);
+    scene.add(gg);
+    const s = g.gapC > 0 ? 1 : -1;
+    const path = new THREE.Mesh(
+      new THREE.PlaneGeometry(2, 26),
+      new THREE.MeshStandardMaterial({ map: TEX.makeConcreteTexture(), roughness: 0.9, metalness: 0 }),
+    );
+    path.rotation.x = -Math.PI / 2;
+    path.position.set(g.fx, 0.08, s * 25);
+    scene.add(path);
+  }
+
   // Lighter concrete plaza disc at the spawn (kept from the scaffold).
   const plaza = new THREE.Mesh(
     new THREE.CircleGeometry(CONFIG.world.plazaRadius, 48),
@@ -552,6 +629,32 @@ export function createWorld(scene) {
       // EW in, NS out: join the surface turn lane of the outgoing road.
       const side = outDz >= 0 ? 1 : -1;
       return { x: node.x + side * FLYOVER.turnLaneX, z: node.z, viaFlyover: false };
+    }
+    // v6.4 (median garden): a car that just left a flyover on the
+    // surface stays in its turn lane for this leg instead of steering
+    // at the centreline. Without this, a car that turned onto the NS
+    // road at a flyover steers at the centreline of the next leg and
+    // drifts across the turn lane toward the garden hedge: it enters
+    // the lane wide (x≈±6.5 off the intersection turn), converges on
+    // the centreline at ~3 deg, and its nose (1.7 m ahead, r=1.0)
+    // clips the hedge around |z|≈46-50 — then it bounces
+    // (forward-blocked, reverse 3.2 m, repeat) until the v6.2 unstuck
+    // fires (traffic runs: 1 unstuck/run, all in the turn lanes).
+    // The turn lane is the car's lane for this leg; the centreline is
+    // only correct once it is past the garden (|z| > 60), which is
+    // exactly where the next node sits. Straight-through deck cars
+    // are unaffected: they are elevated, so flyoverExit overrides the
+    // steer target before this is used.
+    if (prev) {
+      const f = FLYOVERS.find((fl) => Math.abs(prev.x - fl.x) <= 0.5 && Math.abs(prev.z - fl.z) <= 0.5);
+      if (f) {
+        const legDx = node.x - prev.x;
+        const legDz = node.z - prev.z;
+        if (Math.abs(legDz) >= Math.abs(legDx)) {
+          const side = legDz >= 0 ? 1 : -1;
+          return { x: node.x + side * FLYOVER.turnLaneX, z: node.z, viaFlyover: false };
+        }
+      }
     }
     return { x: node.x, z: node.z, viaFlyover: false };
   }
@@ -962,6 +1065,18 @@ export function createWorld(scene) {
     const lz = g.gapSide === 'E' || g.gapSide === 'W' ? g.gapC + 2.5 : (g.z0 + g.z1) / 2;
     lampSpots.push({ x: lx, z: lz });
   }
+  // Median garden lamps (v6.4): SHORT posts (sy 0.3 -> 1.8 m pole, head
+  // at 1.83 m) so they stay under the ramp: clearance at |z| = 38 is
+  // 2.14 m, at |z| = 14 is 5.02 m. One just past the foot gap (east
+  // side, z = ±38, like the v6.3 gap lamps) and one at the deck end
+  // (west side, z = ±14).
+  for (const g of MEDIAN_GARDENS) {
+    const s = g.gapC > 0 ? 1 : -1;
+    lampSpots.push({ x: g.fx + 1.6, z: s * 38, sy: 0.3 });
+    medianObjects.push({ kind: 'lamp', x: g.fx + 1.6, z: s * 38, top: 1.83 });
+    lampSpots.push({ x: g.fx - 1.6, z: s * 14, sy: 0.3 });
+    medianObjects.push({ kind: 'lamp', x: g.fx - 1.6, z: s * 14, top: 1.83 });
+  }
   {
     const poleGeo = new THREE.CylinderGeometry(0.09, 0.12, 6, 6);
     const poleMat = new THREE.MeshStandardMaterial({ color: 0x23262c, roughness: 0.6, metalness: 0.5 });
@@ -971,12 +1086,14 @@ export function createWorld(scene) {
     lampHeadMat = headMat; // Builder C v4: weather dims lamp heads by day.
     const heads = new THREE.InstancedMesh(headGeo, headMat, lampSpots.length);
     lampSpots.forEach((p, i) => {
-      dummy.position.set(p.x, 3, p.z);
-      dummy.scale.set(1, 1, 1);
+      const sy = p.sy || 1; // v6.4: median lamps are short posts (sy 0.3)
+      dummy.position.set(p.x, 3 * sy, p.z);
+      dummy.scale.set(1, sy, 1);
       dummy.rotation.set(0, 0, 0);
       dummy.updateMatrix();
       poles.setMatrixAt(i, dummy.matrix);
-      dummy.position.set(p.x, 6.1, p.z);
+      dummy.position.set(p.x, 6.1 * sy, p.z);
+      dummy.scale.set(1, 1, 1);
       dummy.updateMatrix();
       heads.setMatrixAt(i, dummy.matrix);
     });
@@ -1083,6 +1200,20 @@ export function createWorld(scene) {
       else treesDropped += 1;
     }
   }
+  // Median garden shrubs (v6.4): low spheres only — no oaks (too tall
+  // under the ramp, see MEDIAN_GARDENS note). Squashed crowns (squashY
+  // 0.7, see the makeCrowns call below): top = y + r * 0.7, i.e. 0.92 m
+  // at |z| = 24 (clearance 3.82 m) and 0.80 m at |z| = 46 (clearance
+  // 1.18 m). Two per segment, off the path slab. Visual only, like
+  // benches — the hedge is the barrier, not the planting.
+  const shrubCrowns = [];
+  for (const g of MEDIAN_GARDENS) {
+    const s = g.gapC > 0 ? 1 : -1;
+    shrubCrowns.push({ x: g.fx - 1.6, z: s * 24, y: 0.5, r: 0.6 });
+    medianObjects.push({ kind: 'shrub', x: g.fx - 1.6, z: s * 24, top: 0.92 });
+    shrubCrowns.push({ x: g.fx + 1.6, z: s * 46, y: 0.45, r: 0.5 });
+    medianObjects.push({ kind: 'shrub', x: g.fx + 1.6, z: s * 46, top: 0.8 });
+  }
   function makeTrunks(list, mat) {
     const geo = new THREE.CylinderGeometry(0.2, 0.3, 1, 6);
     const mesh = new THREE.InstancedMesh(geo, mat, list.length);
@@ -1120,6 +1251,7 @@ export function createWorld(scene) {
   makeTrunks(palmTrunks, trunkMat);
   makeCrowns(oakCrowns, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 }), 1);
   makeCrowns(palmCrowns, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 }), 0.55, 0.26, 0.36);
+  makeCrowns(shrubCrowns, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 }), 0.7, 0.10, 0.18);
   const treeCount = oakTrunks.length + palmTrunks.length;
 
   // ---- Props: benches (plaza / park / beach) + hydrants ------------------
@@ -1145,6 +1277,17 @@ export function createWorld(scene) {
     const cz = (g.z0 + g.z1) / 2;
     benches.push({ x: cx, z: cz - 3, rotY: 0 });
     if (g.x1 - g.x0 >= 18) benches.push({ x: cx, z: cz + 3, rotY: Math.PI });
+  }
+  // Median benches (v6.4): long axis along z (rotY ±PI/2) so each sits
+  // beside the 2 m path slab, clear of it and of the hedges. Top
+  // 0.68 m (bench box 0.45 high centred at 0.45): clearance at |z| =
+  // 30 is 3.10 m, at |z| = 18 is 4.54 m.
+  for (const g of MEDIAN_GARDENS) {
+    const s = g.gapC > 0 ? 1 : -1;
+    benches.push({ x: g.fx - 1.6, z: s * 18, rotY: Math.PI / 2 });
+    medianObjects.push({ kind: 'bench', x: g.fx - 1.6, z: s * 18, top: 0.68 });
+    benches.push({ x: g.fx + 1.6, z: s * 30, rotY: -Math.PI / 2 });
+    medianObjects.push({ kind: 'bench', x: g.fx + 1.6, z: s * 30, top: 0.68 });
   }
   {
     const geo = new THREE.BoxGeometry(1.8, 0.45, 0.6);
@@ -1204,6 +1347,86 @@ export function createWorld(scene) {
         hedgeGeos.push(geo);
         if (alongX) colliders.push({ minX: ax, maxX: bx, minZ: az - 0.25, maxZ: az + 0.25 });
         else colliders.push({ minX: ax - 0.25, maxX: ax + 0.25, minZ: az, maxZ: bz });
+      }
+    }
+    if (hedgeGeos.length) {
+      const mesh = new THREE.Mesh(
+        mergeGeometries(hedgeGeos),
+        new THREE.MeshStandardMaterial({ color: 0x166534, roughness: 1, metalness: 0 }),
+      );
+      mesh.frustumCulled = false;
+      scene.add(mesh);
+    }
+    if (bollards.length) {
+      const geo = new THREE.CylinderGeometry(0.25, 0.3, 0.9, 8);
+      const mat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.5, metalness: 0.6 });
+      const inst = new THREE.InstancedMesh(geo, mat, bollards.length);
+      bollards.forEach((b, i) => {
+        dummy.position.set(b.x, 0.45, b.z);
+        dummy.scale.set(1, 1, 1);
+        dummy.rotation.set(0, 0, 0);
+        dummy.updateMatrix();
+        inst.setMatrixAt(i, dummy.matrix);
+      });
+      inst.instanceMatrix.needsUpdate = true;
+      secureInstanced(inst);
+      scene.add(inst);
+    }
+  }
+  // ---- Median garden hedges + bollards (v6.4) -------------------------
+  // Side edges ONLY (no hedge across either strip end — the ends are
+  // the ramp-mount corridor and the intersection opening). Hedge centre
+  // x = f.x ± 2.825, 0.25 m thick, 0.9 m high (THIN: a 0.5 m hedge
+  // left only 0.3 m to the turn lane and traffic cars nose-clipped it
+  // at ~7 deg yaw — see MEDIAN_GARDENS note; 0.25 m leaves 0.55 m,
+  // clip threshold ~19 deg, while the flyover side keeps 0.2 m).
+  // One foot gap per segment on the east side at the midpoint (v6.3
+  // pattern: 4.4 m gap + 0.6 m bollard -> 1.9 m sub-gaps). Colliders
+  // are HEIGHT-GATED (maxY 1.5, see collides()): they block ground
+  // callers but never a car on the deck/ramp above.
+  // INTERSECTION-END INSET (v6.4 fix, found by the builder self-test):
+  // the hedge starts 4 m back from the intersection mouth (z = ±14,
+  // not ±10.5). A sedan turning right out of the turn lane wedges its
+  // centre circle (r = 1.0) on the hedge's end corner at (then
+  // f.x±2.95, ±10.5): the turn apex is (f.x±4.2, ±10.2), the nose cannot swing
+  // east past the corner and the car cannot move at all (speed pinned
+  // at -0.05, heading frozen — reproduced 2x in the self-test). With
+  // the corner at ±14 the apex clears it by 2.8 m (centre) / 1.5 m
+  // (tail). The 4 m of hedge-less strip at the mouth is part of the
+  // already-open intersection end, not a new entrance: the strip ends
+  // were open by design (ramp-mount corridor).
+  {
+    const GAP_W = 4.4;
+    const BOL_W = 0.6;
+    const hedgeGeos = [];
+    const bollards = [];
+    for (const g of MEDIAN_GARDENS) {
+      const hz0 = g.z0 + (g.z0 > 0 ? 4 : 0.5);
+      const hz1 = g.z1 - (g.z1 < 0 ? 4 : 0.5);
+      for (const side of [-1, 1]) {
+        const ex = g.fx + side * 2.825;
+        const isGap = side > 0; // east side only (gapSide 'E')
+        const runs = [];
+        if (!isGap) {
+          runs.push([hz0, hz1]);
+        } else {
+          const g0 = g.gapC - GAP_W / 2;
+          const g1 = g.gapC + GAP_W / 2;
+          runs.push([hz0, g0], [g1, hz1]);
+          bollards.push({ x: ex, z: g.gapC });
+          colliders.push({
+            minX: ex - BOL_W / 2, maxX: ex + BOL_W / 2,
+            minZ: g.gapC - BOL_W / 2, maxZ: g.gapC + BOL_W / 2, maxY: 1.5,
+          });
+        }
+        for (const [za, zb] of runs) {
+          const len = zb - za;
+          if (len <= 0) continue;
+          const geo = new THREE.BoxGeometry(0.25, 0.9, len);
+          geo.translate(ex, 0.45, (za + zb) / 2);
+          hedgeGeos.push(geo);
+          colliders.push({ minX: ex - 0.125, maxX: ex + 0.125, minZ: za, maxZ: zb, maxY: 1.5 });
+        }
       }
     }
     if (hedgeGeos.length) {
@@ -1357,6 +1580,12 @@ export function createWorld(scene) {
   function collides(x, z, r, y = 0) {
     if (x > WATER_X0 - 2) return true; // water is not walkable
     for (const c of colliders) {
+      // Height-gated colliders (v6.4 median hedges/bollards, maxY 1.5):
+      // they block ground callers only — a car on the deck/ramp above
+      // (y > 1.5) passes over them, exactly like the deck-edge barriers
+      // below (which gate the other way). Plain colliders (buildings,
+      // v6.3 hedges) have no maxY and behave exactly as before.
+      if (c.maxY !== undefined && y > c.maxY) continue;
       if (x + r > c.minX && x - r < c.maxX && z + r > c.minZ && z - r < c.maxZ) return true;
     }
     if (y > 1.5) {
@@ -1437,6 +1666,8 @@ export function createWorld(scene) {
     roads: roadGraph.segments.length,
     flyovers: FLYOVERS.length,
     gardens: FLYOVER_GARDENS.length,
+    medianGardens: MEDIAN_GARDENS.length,
+    medianObjects: medianObjects.length,
   };
 
   const loadMs = performance.now() - t0;
@@ -1455,6 +1686,8 @@ export function createWorld(scene) {
     roadGraph,
     flyovers: FLYOVERS.map((f) => ({ ...f, deckH: FLYOVER.deckH, rampLen: FLYOVER.rampLen, width: FLYOVER.width, deckHalf: FLYOVER.deckHalf, flyLaneX: FLYOVER.flyLaneX })),
     flyoverGardens: FLYOVER_GARDENS,
+    medianGardens: MEDIAN_GARDENS,
+    medianObjects,
     // v6: steering-target lane shift at flyover intersections (see
     // laneTarget above). Exposed for the traffic drivers (vehicles.js /
     // ambient.js) and the debug API.
@@ -1497,6 +1730,8 @@ export function createWorld(scene) {
     roadGraph,
     flyovers: api.flyovers,
     flyoverGardens: FLYOVER_GARDENS,
+    medianGardens: MEDIAN_GARDENS,
+    medianObjects,
     destinations,
     spawn,
     boats,
