@@ -31,6 +31,10 @@ export const I18N = {
     noSaveToLoad: 'No save to load.', progressDeleted: 'Progress deleted.',
     escaping: 'ESCAPING...', escaped: 'You escaped!', spotted: 'SPOTTED!',
     packages: 'Packages',
+    fullscreen: 'Fullscreen',
+    fullscreenUnsupported: 'Fullscreen is not supported in this browser',
+    fullscreenFailed: 'Could not enter fullscreen.',
+    exitFullscreen: 'Exit fullscreen',
   },
   id: {
     money: 'Uang', wanted: 'Buronan', hp: 'Darah', ammo: 'Peluru', objective: 'Misi',
@@ -56,6 +60,10 @@ export const I18N = {
     noSaveToLoad: 'Tidak ada save untuk dimuat.', progressDeleted: 'Progres dihapus.',
     escaping: 'KABUR...', escaped: 'Berhasil kabur!', spotted: 'TERLIHAT!',
     packages: 'Paket',
+    fullscreen: 'Layar Penuh',
+    fullscreenUnsupported: 'Layar penuh tidak didukung di browser ini',
+    fullscreenFailed: 'Tidak bisa masuk layar penuh.',
+    exitFullscreen: 'Keluar layar penuh',
   },
 };
 

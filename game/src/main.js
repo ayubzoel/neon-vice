@@ -398,7 +398,57 @@ function syncSettingsInputs() {
   if (sensVal) sensVal.textContent = `${Number(settings.camSensitivity ?? 1).toFixed(1)}×`;
   const fol = document.getElementById('followChk');
   if (fol) fol.checked = settings.camFollow !== false;
+  syncFullscreenUI();
 }
+
+// ---- v6.5 item 6: fullscreen mode (session-only toggle, default OFF) ----
+// Fullscreen is NOT persisted in settings: the API needs a user gesture,
+// so a stored "on" could never be applied on load anyway. The checkbox
+// always reflects the LIVE state (synced on every fullscreenchange, which
+// also covers leaving via Esc). Unsupported browsers get a disabled
+// checkbox + a short explanation instead of an error.
+function isFullscreenSupported() {
+  return typeof document !== 'undefined'
+    && !!document.fullscreenEnabled
+    && typeof document.documentElement.requestFullscreen === 'function';
+}
+function syncFullscreenUI() {
+  const chk = document.getElementById('fullscreenChk');
+  const note = document.getElementById('fullscreenNote');
+  const titleBtn = document.getElementById('btnFullscreenTitle');
+  const supported = isFullscreenSupported();
+  const active = !!document.fullscreenElement;
+  if (chk) {
+    chk.checked = active;
+    chk.disabled = !supported;
+  }
+  if (note) note.hidden = supported;
+  if (titleBtn) {
+    titleBtn.hidden = !supported;
+    titleBtn.textContent = active ? ui.t('exitFullscreen') : ui.t('fullscreen');
+  }
+}
+async function setFullscreen(on) {
+  if (on) {
+    if (!isFullscreenSupported()) { syncFullscreenUI(); return false; }
+    try {
+      await document.documentElement.requestFullscreen();
+      return true;
+    } catch {
+      // Rejected (e.g. no user gesture, browser policy) — revert the UI,
+      // never throw.
+      ui.toast(ui.t('fullscreenFailed'));
+      syncFullscreenUI();
+      return false;
+    }
+  }
+  if (document.fullscreenElement) {
+    try { await document.exitFullscreen(); } catch { /* already out */ }
+  }
+  syncFullscreenUI();
+  return true;
+}
+document.addEventListener('fullscreenchange', syncFullscreenUI);
 
 // ---- v5 loading screen flow ----
 // #startScreen has three views; exactly ONE is visible at a time:
@@ -1275,6 +1325,9 @@ function frame(now) {
         // Test hooks (v5): loading-screen flow + settings, without DOM clicks.
         settings: () => ({ ...settings }),
         saveExists: () => save.exists(),
+        // v6.5 item 6: fullscreen state (supported/active) for tests.
+        fullscreen: () => ({ supported: isFullscreenSupported(), active: !!document.fullscreenElement }),
+        setFullscreen: (on) => setFullscreen(!!on),
         startGame: (fromSave) => startGame(!!fromSave),
         showStartView: (v) => showStartView(v),
         openSettings: () => openSettings(),
@@ -1456,7 +1509,18 @@ document.getElementById('followChk').addEventListener('change', (e) => {
 });
 document.getElementById('langSel').addEventListener('change', (e) => {
   ui.setLang(e.target.value);
+  // setLang rewrites every [data-i18n] label, including the title-screen
+  // fullscreen button — re-apply its live Enter/Exit text afterwards.
+  syncFullscreenUI();
   saveSettings();
+});
+// v6.5 item 6: fullscreen toggle (Settings) + title-screen button.
+// Both are real user gestures, which the Fullscreen API requires.
+document.getElementById('fullscreenChk').addEventListener('change', (e) => {
+  setFullscreen(e.target.checked);
+});
+document.getElementById('btnFullscreenTitle').addEventListener('click', () => {
+  setFullscreen(!document.fullscreenElement);
 });
 
 // Loading screen starts on its main view (Start Game + Settings only).

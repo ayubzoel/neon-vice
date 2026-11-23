@@ -183,6 +183,7 @@
       <p>Vera Cruz came to Vice Harbor with empty pockets and a $50,000 debt to Rico Salas. Twelve missions, side jobs, cars, a boat, and the cops — all in one small night city.</p>
       <button class="btn" id="btnPlay" data-i18n="playGame">Start Game</button>
       <button class="btn secondary" id="btnSettings" data-i18n="settings">Settings</button>
+      <button class="btn secondary" id="btnFullscreenTitle" data-i18n="fullscreen" title="Fullscreen">Fullscreen</button>
     </div>
     <div id="startPlay" class="hidden">
       <h2 data-i18n="playGame">Start Game</h2>
@@ -241,6 +242,7 @@
       <select id="qualitySel"><option value="high">High</option><option value="low">Low</option></select></label>
     <label class="row"><span data-i18n="cameraSensitivity">Camera sensitivity</span><span><input type="range" id="sensSlider" min="0.5" max="2" step="0.1" value="1" style="width:130px;vertical-align:middle"> <b id="sensVal">1.0×</b></span></label>
     <label class="row"><span data-i18n="cameraFollow">Camera follows movement</span><input type="checkbox" id="followChk" checked></label>
+    <label class="row"><span data-i18n="fullscreen">Fullscreen</span><span><input type="checkbox" id="fullscreenChk"> <span id="fullscreenNote" class="keys" data-i18n="fullscreenUnsupported" hidden>Fullscreen is not supported in this browser</span></span></label>
     <label class="row"><span data-i18n="language">Language</span>
       <select id="langSel"><option value="en">English</option><option value="id">Bahasa Indonesia</option></select></label>
     <h3 data-i18n="audio">Audio</h3>
