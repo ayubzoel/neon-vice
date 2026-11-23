@@ -432,6 +432,123 @@ export function createCombat(scene, world, player, audio) {
   // lights with siren (traffic rules apply only when not chasing — and a
   // police car never patrols: at wanted 0 it despawns, like Neon Bay).
   const policeCars = [];
+
+  // v6.5 item 5 — police helicopter (wanted 4-5 only). One merged mesh
+  // (body + tail + static rotor + skids + searchlight lens) + one
+  // translucent searchlight cone = +2 draw calls. It NEVER shoots and is
+  // NEVER in police/policeCars/enemies, so it cannot count in
+  // policeCanSee/escapeTimer — from the air LOS is almost always clear,
+  // and counting it would make a 4-5 star escape impossible. It orbits at
+  // 25 m (above the 6 m flyover deck) and climbs above any roof it passes
+  // over (world.tallestAt; towers reach 58 m). The orbit is wide (55 m)
+  // and low on purpose: the third-person camera looks down at the player
+  // (frame top ~+12 deg at default pitch, ~+23 deg at minimum pitch), so
+  // a 30 m / 35 m orbit would sit above the frame and the player would
+  // never see the heli at all — the searchlight beam sweeping the street
+  // is what makes it unmistakable even when the heli itself is high.
+  const HELI_Y = 25;
+  const HELI_R = 55;
+  const HELI_SPEED = 0.32; // rad/s — a full orbit takes ~20 s
+  let heli = null;
+  let heliAngle = 0;
+  let heliY = HELI_Y;
+
+  function makeHeliMesh() {
+    const geos = [];
+    const paint = (g, hex) => {
+      const c = new THREE.Color(hex);
+      const n = g.attributes.position.count;
+      const arr = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) { arr[i * 3] = c.r; arr[i * 3 + 1] = c.g; arr[i * 3 + 2] = c.b; }
+      g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+      geos.push(g);
+    };
+    const box = (w, h, d, x, y, z, hex) => {
+      const g = new THREE.BoxGeometry(w, h, d);
+      g.translate(x, y, z);
+      paint(g, hex);
+    };
+    box(2.4, 1.3, 4.6, 0, 0, 0, 0x1e3a5f); // police-blue body
+    box(2.0, 0.9, 1.2, 0, 0.1, 1.9, 0x0f172a); // dark nose glass
+    box(2.44, 0.35, 3.0, 0, 0.15, -0.2, 0xf8fafc); // white stripe
+    box(0.8, 0.8, 4.2, 0, 0.2, -4.2, 0x1e3a5f); // tail boom
+    box(0.15, 1.6, 1.0, 0, 0.9, -6.0, 0x1e3a5f); // tail fin
+    box(0.12, 1.6, 0.3, -0.55, 0.3, -5.8, 0x94a3b8); // tail rotor
+    box(0.3, 0.5, 0.3, 0, 0.85, 0, 0x334155); // rotor mast
+    box(8.0, 0.1, 0.6, 0, 1.15, 0, 0x334155); // main rotor (static)
+    box(0.15, 0.15, 3.6, -1.0, -0.95, 0, 0x475569); // skids
+    box(0.15, 0.15, 3.6, 1.0, -0.95, 0, 0x475569);
+    box(0.15, 0.35, 0.15, -1.0, -0.75, 1.2, 0x475569); // skid struts
+    box(0.15, 0.35, 0.15, 1.0, -0.75, 1.2, 0x475569);
+    box(0.15, 0.35, 0.15, -1.0, -0.75, -1.2, 0x475569);
+    box(0.15, 0.35, 0.15, 1.0, -0.75, -1.2, 0x475569);
+    box(0.6, 0.3, 0.4, 0, -0.7, 1.6, 0xfff7cc); // searchlight lens (unlit, bright)
+    const group = new THREE.Group();
+    group.userData.isHeli = true; // probe hook: identify the heli in the scene
+    group.add(new THREE.Mesh(
+      mergeCarGeos(geos),
+      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.4 }),
+    ));
+    // Searchlight cone: apex at the heli, base on the ground (scaled per
+    // frame in updateHeli). Translucent so the street stays readable
+    // through it; the beam is what the player actually sees sweeping the
+    // ground when the heli itself is above the camera frame.
+    const cone = new THREE.Mesh(
+      new THREE.ConeGeometry(6, HELI_Y, 20, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0xfff7cc, transparent: true, opacity: 0.16,
+        side: THREE.DoubleSide, depthWrite: false,
+      }),
+    );
+    group.add(cone);
+    group.userData.cone = cone;
+    return group;
+  }
+
+  function updateHeli(dt) {
+    if (wanted >= 4) {
+      if (!heli) {
+        heli = makeHeliMesh();
+        scene.add(heli);
+        // Spawn in front of the player so it is seen at once: the orbit
+        // offset points along the player's heading.
+        heliAngle = Math.PI / 2 - player.heading;
+        heliY = HELI_Y;
+      }
+      heliAngle += HELI_SPEED * dt;
+      const px = player.group.position.x;
+      const pz = player.group.position.z;
+      const hx = px + Math.cos(heliAngle) * HELI_R;
+      const hz = pz + Math.sin(heliAngle) * HELI_R;
+      // Roof avoidance: tallestAt is a step function — at a building edge
+      // the roof jumps from 0 to 58 m instantly, and no climb rate can
+      // react in time. So look ahead along the orbit (up to 3 s) and climb
+      // BEFORE reaching a tall roof; the max over the arc ahead sets the
+      // target altitude. Climb fast, sink gently.
+      let targetY = HELI_Y;
+      for (let k = 0; k <= 6; k += 1) {
+        const a = heliAngle + (k / 6) * HELI_SPEED * 3;
+        const roof = (world.tallestAt ? world.tallestAt(px + Math.cos(a) * HELI_R, pz + Math.sin(a) * HELI_R) : 0) || 0;
+        targetY = Math.max(targetY, roof + 6);
+      }
+      const rate = targetY > heliY ? 18 : 6;
+      heliY += Math.max(-rate * dt, Math.min(rate * dt, targetY - heliY));
+      heli.position.set(hx, heliY + Math.sin(gameTime * 1.3) * 0.8, hz);
+      heli.rotation.y = Math.atan2(px - hx, pz - hz);
+      // Searchlight cone: stretch it so the base stays on the ground
+      // (apex at the heli, base at y=0). Cone geometry is HELI_Y tall,
+      // centred — scale + offset put the apex at the group origin.
+      const cone = heli.userData.cone;
+      if (cone) {
+        const s = heliY / HELI_Y;
+        cone.scale.set(1, s, 1);
+        cone.position.y = -HELI_Y * s / 2;
+      }
+    } else if (heli) {
+      scene.remove(heli);
+      heli = null;
+    }
+  }
   const CAR_STATS = { hp: 80, range: 48, damage: 8, hitChance: 0.4, shootInterval: 0.9, ramDamage: 8 };
 
   function mergeCarGeos(geos) {
@@ -751,6 +868,7 @@ export function createCombat(scene, world, player, audio) {
       if (p.dead || !p.mission) { scene.remove(p.mesh); police.splice(i, 1); }
     }
     clearPoliceCars();
+    if (heli) { scene.remove(heli); heli = null; } // v6.5 item 5
   }
 
   // Nearest living police unit (foot or car) within `dist` metres, or null.
@@ -931,6 +1049,12 @@ export function createCombat(scene, world, player, audio) {
         cars: cars.length,
         nearestFoot: fd.length ? Math.min(...fd) : null,
         nearestCar: cd.length ? Math.min(...cd) : null,
+        // v6.5 item 5: helicopter position while active, else null.
+        heli: heli ? {
+          x: +heli.position.x.toFixed(1),
+          y: +heli.position.y.toFixed(1),
+          z: +heli.position.z.toFixed(1),
+        } : null,
         hp: player.hp,
       };
     },
@@ -1114,6 +1238,9 @@ export function createCombat(scene, world, player, audio) {
         police.length = 0;
         police.push(...keep);
       }
+      // v6.5 item 5: police helicopter at wanted 4-5 (never shoots, never
+      // counts toward policeCanSee/escapeTimer — see updateHeli).
+      updateHeli(dt);
     },
   };
 }

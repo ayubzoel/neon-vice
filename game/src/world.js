@@ -1829,6 +1829,18 @@ export function createWorld(scene) {
     groundHeightAt(x, z, currentY = 0) {
       return flyoverHeightAt(x, z, currentY);
     },
+    // v6.5 item 5: tallest building roof under a point (0 = open ground),
+    // for the police helicopter's roof avoidance — downtown towers reach
+    // 58 m, so a fixed 30 m orbit would fly straight through them.
+    tallestAt(x, z) {
+      let h = 0;
+      for (const list of [byKind.tower, byKind.mid, byKind.house, byKind.warehouse]) {
+        for (const b of list) {
+          if (Math.abs(x - b.x) <= b.w / 2 + 1 && Math.abs(z - b.z) <= b.d / 2 + 1 && b.h > h) h = b.h;
+        }
+      }
+      return h;
+    },
     findOpenGround,
     nearestSidewalk,
     collides,

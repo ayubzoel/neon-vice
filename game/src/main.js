@@ -88,6 +88,10 @@ function normalizeWorld(raw) {
     // v6.2: nearest node ahead, for the missed-turn recovery.
     aheadNode: typeof raw.aheadNode === 'function'
       ? (x, z, h) => raw.aheadNode(x, z, h) : null,
+    // v6.5 item 5: tallest building roof under a point — the police
+    // helicopter's roof avoidance (combat.js updateHeli).
+    tallestAt: typeof raw.tallestAt === 'function'
+      ? (x, z) => raw.tallestAt(x, z) : () => 0,
     destinations: raw.destinations || null,
     groundHeightAt: typeof raw.groundHeightAt === 'function' ? (x, z, y = 0) => raw.groundHeightAt(x, z, y) : () => 0,
     findOpenGround: typeof raw.findOpenGround === 'function'
