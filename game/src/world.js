@@ -939,16 +939,25 @@ export function createWorld(scene) {
   const buildingCount =
     byKind.tower.length + byKind.mid.length + byKind.house.length + byKind.warehouse.length;
 
-  // ---- Neon signs on facades (v6.5 item 4) -------------------------------
+  // ---- Neon signs on facades (v6.5 item 4, densified v6.6 item 4) -------
   // Was: downtown towers/mids only, max 70 signs, one per building, all
-  // 3.4 x 1.2 m. Now: every tower/mid in the city, up to 200 horizontal
-  // signs (1-2 per tall building, varied size/height) + up to 120
-  // vertical strips on the same facades + extra lit-window quads below.
-  // All three live in instanced meshes: signs reuse the one draw call
-  // they already had, strips and windows add one call each.
+  // 3.4 x 1.2 m. v6.5: every tower/mid in the city, up to 300 signs +
+  // 120 strips + rooflines + 900 lit-window quads. v6.6: the caps were
+  // hit before the later cells were reached, so the city read dim away
+  // from downtown — caps raised (signs 500, strips 220) and every
+  // probability raised, with DOWNTOWN FIRST in the iteration order so
+  // the centre gets the densest glow before any cap binds. All of it
+  // still lives in the same 5 instanced meshes, so the draw-call cost
+  // is unchanged (only the instance counts grow).
   const neonSigns = []; // {x, y, z, rotY, w, h}
   const neonStrips = []; // {x, y, z, rotY, w, h} vertical
   const neonRooflines = []; // {x, y, z, rotY, w, h} thin glow along the roof edge
+  const downtownSet = new Set(downtownBuildings);
+  const neonOrder = [
+    ...downtownBuildings,
+    ...byKind.tower.filter((b) => !downtownSet.has(b)),
+    ...byKind.mid.filter((b) => !downtownSet.has(b)),
+  ];
   // Street-facing side for a building: the nearer road axis, and the side
   // TOWARD that road (v6.5 item 4 fix: the old sign code picked the side
   // from the sign of the coordinate — b.x < 0 ? east : west — which faces
@@ -966,39 +975,54 @@ export function createWorld(scene) {
     const side = hz >= b.z ? 1 : -1; // toward the nearest horizontal road
     return { x: b.x, z: b.z + side * (b.d / 2 + 0.35), rotY: side > 0 ? 0 : Math.PI, along: 'x', half: b.w / 2 };
   }
-  for (const b of [...byKind.tower, ...byKind.mid]) {
-    if (neonSigns.length >= 300) break;
-    if (rng() < 0.15) continue;
+  for (const b of neonOrder) {
+    if (neonSigns.length >= 800) break;
+    const isDowntown = downtownSet.has(b);
+    if (!isDowntown && rng() < 0.08) continue;
     const f = facadeOf(b);
     const y = randRange(rng, 6, Math.min(b.h - 2, 24));
+    // v6.6 item 4 (round 3): EVERY tower/mid gets TWO signs (a lower
+    // and a higher one) — one sign per building left the street view
+    // sparse (3-4 signs visible) even after the cap raise, because a
+    // street canyon only shows a few facades. Downtown towers get a
+    // third. Cap 800; still one instanced mesh, one draw call.
     neonSigns.push({
       ...f, y,
-      w: randRange(rng, 3.0, 6.5), h: randRange(rng, 1.1, 2.0),
+      w: randRange(rng, 4.0, 8.0), h: randRange(rng, 1.4, 2.4),
     });
-    // Roofline glow: a thin neon line along the top edge of the same
-    // facade — the skyline reads as lit from street level even far away.
-    if (rng() < 0.75) {
-      neonRooflines.push({
-        ...f, y: b.h - 0.6,
-        w: Math.max(4, f.half * 2 - 1), h: 0.35,
-      });
-    }
-    // A second sign higher up on tall buildings.
-    if (b.h > 18 && rng() < 0.5 && neonSigns.length < 300) {
+    if (rng() < 0.85) {
       neonSigns.push({
         ...f, y: randRange(rng, Math.min(b.h - 2, 14), Math.min(b.h - 2, 26)),
-        w: randRange(rng, 2.4, 4.2), h: randRange(rng, 0.9, 1.5),
+        w: randRange(rng, 3.0, 5.0), h: randRange(rng, 1.2, 1.9),
       });
     }
-    // A vertical strip near a facade corner.
-    if (rng() < 0.5 && neonStrips.length < 120) {
-      const off = randRange(rng, -f.half + 2, f.half - 2);
-      const sx = f.along === 'z' ? f.x : f.x + off;
-      const sz = f.along === 'z' ? f.z + off : f.z;
-      neonStrips.push({
-        x: sx, z: sz, y: randRange(rng, 5, Math.max(6, b.h - 8)), rotY: f.rotY,
-        w: randRange(rng, 0.5, 0.8), h: randRange(rng, 5, Math.min(13, b.h - 4)),
+    if (isDowntown && b.h > 18 && rng() < 0.6 && neonSigns.length < 800) {
+      neonSigns.push({
+        ...f, y: randRange(rng, 4, Math.min(b.h - 2, 10)),
+        w: randRange(rng, 2.4, 4.0), h: randRange(rng, 1.0, 1.6),
       });
+    }
+    // Roofline glow: a thin neon line along the top edge of the same
+    // facade — the skyline reads as lit from street level even far away.
+    if (rng() < 0.85) {
+      neonRooflines.push({
+        ...f, y: b.h - 0.6,
+        w: Math.max(4, f.half * 2 - 1), h: 0.5,
+      });
+    }
+    // A vertical strip near a facade corner; tall buildings get two
+    // (one near each corner).
+    const stripCount = b.h > 18 ? 2 : 1;
+    for (let si = 0; si < stripCount; si++) {
+      if (rng() < 0.7 && neonStrips.length < 300) {
+        const off = randRange(rng, -f.half + 2, f.half - 2);
+        const sx = f.along === 'z' ? f.x : f.x + off;
+        const sz = f.along === 'z' ? f.z + off : f.z;
+        neonStrips.push({
+          x: sx, z: sz, y: randRange(rng, 5, Math.max(6, b.h - 8)), rotY: f.rotY,
+          w: randRange(rng, 0.7, 1.0), h: randRange(rng, 5, Math.min(13, b.h - 4)),
+        });
+      }
     }
   }
   {
@@ -1057,26 +1081,36 @@ export function createWorld(scene) {
   // Extra lit windows: bright quads on street-facing facades, beyond what
   // the building texture already draws. Two instanced meshes (warm /
   // cool) with emissive materials, so weather.js dims them by day exactly
-  // like the texture windows (windowMats, base 1.4) instead of glowing
-  // at noon. One draw call per mesh.
+  // like the texture windows (windowMats, base 1.6/1.3) instead of glowing
+  // at noon. One draw call per mesh. v6.6 item 4: cap 900 -> 2000, more
+  // windows lit per floor (skip 30% not 45%), 4 per floor on tall
+  // buildings (2 on the rest), bigger quads, downtown first — same 2
+  // draw calls, denser glow.
+  let neonWindowCount = 0; // filled below, exposed for the harness
   {
     const winQuads = { warm: [], cool: [] };
-    for (const b of [...byKind.tower, ...byKind.mid, ...byKind.house]) {
-      if (winQuads.warm.length + winQuads.cool.length >= 900) break;
+    const winOrder = [
+      ...downtownBuildings,
+      ...byKind.tower.filter((b) => !downtownSet.has(b)),
+      ...byKind.mid.filter((b) => !downtownSet.has(b)),
+      ...byKind.house,
+    ];
+    for (const b of winOrder) {
+      if (winQuads.warm.length + winQuads.cool.length >= 2000) break;
       const f = facadeOf(b);
       const floors = Math.max(1, Math.floor((b.h - 4) / 3));
-      const perFloor = b.h > 14 ? 2 : 1;
+      const perFloor = b.h > 14 ? 4 : 2;
       for (let fl = 0; fl < floors; fl++) {
-        if (rng() < 0.45) continue; // not every window is lit
+        if (rng() < 0.3) continue; // not every window is lit
         for (let k = 0; k < perFloor; k++) {
-          if (winQuads.warm.length + winQuads.cool.length >= 900) break;
+          if (winQuads.warm.length + winQuads.cool.length >= 2000) break;
           const off = randRange(rng, -f.half + 2, f.half - 2);
           const q = {
             x: f.along === 'z' ? f.x : f.x + off,
             z: f.along === 'z' ? f.z + off : f.z,
             y: 4 + fl * 3 + randRange(rng, 0, 0.8),
             rotY: f.rotY,
-            w: randRange(rng, 1.0, 1.3), h: randRange(rng, 1.4, 1.8),
+            w: randRange(rng, 1.2, 1.6), h: randRange(rng, 1.6, 2.2),
           };
           (rng() < 0.55 ? winQuads.warm : winQuads.cool).push(q);
         }
@@ -1084,7 +1118,7 @@ export function createWorld(scene) {
     }
     for (const [key, list] of Object.entries(winQuads)) {
       if (!list.length) continue;
-      const base = key === 'warm' ? 1.4 : 1.1; // cool quads dimmer, less "white panel"
+      const base = key === 'warm' ? 1.6 : 1.3; // cool quads dimmer, less "white panel"
       const mat = new THREE.MeshStandardMaterial({
         color: 0x111111, emissive: key === 'warm' ? 0xffc46b : 0x9fd8ff,
         emissiveIntensity: base, roughness: 0.4, metalness: 0, side: THREE.DoubleSide,
@@ -1102,6 +1136,7 @@ export function createWorld(scene) {
       secureInstanced(mesh);
       scene.add(mesh);
     }
+    neonWindowCount = winQuads.warm.length + winQuads.cool.length;
   }
 
   // ---- Traffic lights: one pole per entry corner, on the sidewalk --------
@@ -1969,6 +2004,13 @@ export function createWorld(scene) {
     findOpenGround: api.findOpenGround,
     findParkSpot: api.findParkSpot,
     benches,
+    // v6.6 item 4: neon instance counts, so the harness can verify the
+    // density increase directly (pixel metrics at one viewpoint are noisy
+    // across rng reshuffles).
+    neonCounts: {
+      signs: neonSigns.length, strips: neonStrips.length,
+      rooflines: neonRooflines.length, windows: neonWindowCount,
+    },
     nearestSidewalk: api.nearestSidewalk,
     collides: api.collides,
     isInWater: api.isInWater,
