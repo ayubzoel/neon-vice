@@ -86,6 +86,7 @@ export function createSave(ctx) {
             ? ctx.getOwnedJackets()
             : [ctx.player.jacketColor],
           missions: ctx.missions.getState(),
+          packages: ctx.packages ? ctx.packages.getState() : undefined, // v6.5 item 2
           hour: ctx.weather.hour,
           lang: ctx.settings.lang,
           volume: ctx.settings.volume,

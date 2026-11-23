@@ -15,6 +15,7 @@ import { createVehicles } from './vehicles.js';
 import { createAmbient } from './ambient.js';
 import { createCombat } from './combat.js';
 import { createMissions, MISSION_DEFS } from './missions.js';
+import { createPackages } from './packages.js'; // v6.5 item 2: hidden money packages
 import { createShops, SHOPS } from './shops.js';
 import { createSave, loadSettings, persistSettings } from './save.js';
 import { createMap } from './map.js';
@@ -224,17 +225,27 @@ const missions = createMissions(scene, world, {
   onMissionComplete: () => { save.save(); },
 });
 // Re-create save with the full context now that missions exist.
-const save = createSave({
+const saveCtx = {
   player, combat, missions, weather, settings,
   getMoney: () => money,
   getOwnedJackets: () => ownedJackets.slice(),
-});
+};
+const save = createSave(saveCtx);
 // shops ctx
 const shops = createShops(scene, {
   player, combat, audio, world,
   getMoney: () => money,
   spendMoney: (n) => { money -= n; ui.setMoney(money); },
 });
+// v6.5 item 2 — hidden money packages (created after save so a pickup can
+// autosave; saveCtx.packages is read at save() time, like missions).
+const packages = createPackages(scene, world, {
+  player, world, ui, audio,
+  addMoney: (n) => { money += n; ui.setMoney(money); },
+  onMessage: (m) => ui.toast(m, 4200),
+  onCollect: () => { save.save(); },
+});
+saveCtx.packages = packages;
 
 // ---- Camera (Builder B v4 rev 7: free orbit) ----
 // The camera orbits Vera 360°: a drag on empty screen (touch swipe or
@@ -344,6 +355,7 @@ function applyLoadedSave(data) {
     ownedJackets = [data.jacketColor];
   }
   if (data.missions) missions.setState(data.missions);
+  if (data.packages) packages.setState(data.packages); // v6.5 item 2
   if (typeof data.hour === 'number') weather.setHour(data.hour);
   if (data.lang) { settings.lang = data.lang; ui.setLang(data.lang); }
   if (typeof data.volume === 'number') { settings.volume = data.volume; audio.setVolume(data.volume); }
@@ -415,6 +427,7 @@ function startGame(fromSave) {
     player.heading = world.spawn.heading || 0;
     money = CONFIG.money.start;
     ui.setMoney(money);
+    packages.setState(null); // v6.5 item 2: New Game re-hides all packages
   }
   state = 'playing';
   startPanel.classList.add('hidden');
@@ -963,6 +976,7 @@ function step(dt) {
 
   // Missions + weather.
   missions.update(dt);
+  packages.update(dt); // v6.5 item 2: walk-over pickup check + bob
   weather.update(dt, player.group.position.x, player.group.position.z);
 
   // Death.
@@ -1143,11 +1157,12 @@ function frame(now) {
         settings: { ...settings }, saveExists: save.exists(),
         ambient: ambient.stats(),
         drawCalls: renderer.info.render.calls,
+        packages: { collected: packages.collectedCount, total: packages.total }, // v6.5 item 2
         camYaw: +camYaw.toFixed(3), camPitch: +camPitch.toFixed(3),
         speedSigned: driving ? +driving.speed.toFixed(2) : +player.speed.toFixed(2),
         flyovers: world.flyovers,
       }),
-      game: { player, vehicles, ambient, combat, missions, shops, weather, save, map: mapSys, ui, audio, input, world },
+      game: { player, vehicles, ambient, combat, missions, packages, shops, weather, save, map: mapSys, ui, audio, input, world },
       debug: {
         startMission: (n) => {
           const def = missions.startMission(n);

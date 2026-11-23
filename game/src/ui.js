@@ -30,6 +30,7 @@ export const I18N = {
     confirmDelete: 'Yes, delete', loadedSave: 'Save loaded.',
     noSaveToLoad: 'No save to load.', progressDeleted: 'Progress deleted.',
     escaping: 'ESCAPING...', escaped: 'You escaped!', spotted: 'SPOTTED!',
+    packages: 'Packages',
   },
   id: {
     money: 'Uang', wanted: 'Buronan', hp: 'Darah', ammo: 'Peluru', objective: 'Misi',
@@ -54,6 +55,7 @@ export const I18N = {
     confirmDelete: 'Ya, hapus', loadedSave: 'Save dimuat.',
     noSaveToLoad: 'Tidak ada save untuk dimuat.', progressDeleted: 'Progres dihapus.',
     escaping: 'KABUR...', escaped: 'Berhasil kabur!', spotted: 'TERLIHAT!',
+    packages: 'Paket',
   },
 };
 
@@ -71,6 +73,9 @@ export function createUI(settings) {
     document.querySelectorAll('[data-i18n]').forEach((el) => {
       el.textContent = t(el.dataset.i18n);
     });
+    // Dynamic HUD lines are not data-i18n: re-render the package
+    // counter in the new language (v6.5 item 2).
+    if (lastPackages) setPackages(lastPackages.n, lastPackages.total);
   }
 
   function setMoney(n) {
@@ -122,6 +127,14 @@ export function createUI(settings) {
   function setObjective(text) {
     const el = $('hudObjective');
     if (el) el.textContent = text || '';
+  }
+  // v6.5 item 2: hidden-package counter, "Packages 3/20" / "Paket 3/20".
+  // The last count is remembered so a language switch re-renders it.
+  let lastPackages = null;
+  function setPackages(n, total) {
+    lastPackages = { n, total };
+    const el = $('hudPackages');
+    if (el) el.textContent = `${t('packages')} ${n}/${total}`;
   }
   function setClock(text, raining) {
     const el = $('hudClock');
@@ -308,7 +321,7 @@ export function createUI(settings) {
 
   return {
     t, setLang, get lang() { return lang; },
-    setMoney, setWanted, setEscape, setHp, setAmmo, setObjective, setClock, setAmbient, setGps, toast,
+    setMoney, setWanted, setEscape, setHp, setAmmo, setObjective, setPackages, setClock, setAmbient, setGps, toast,
     setBannerHint, dismissBanner, showBanner, toggleBanner,
     get bannerDismissed() { return bannerDismissed; },
     drawMinimap,
