@@ -227,6 +227,16 @@ export function createVehicles(scene, world) {
       else v.speed -= accel * 0.6 * dt;
     } else v.speed -= Math.sign(v.speed) * Math.min(Math.abs(v.speed), 8 * dt);
     v.speed = Math.max(-v.maxSpeed * 0.45, Math.min(v.maxSpeed, v.speed));
+    // v6.6 item 5: sand is slow — a car on the beach (x 420..470) tops
+    // out at ~6 m/s forward (reverse 45% of that), so the beach is
+    // drivable but sluggish, like real sand. Boats are exempt (they are
+    // in the water, never on sand). The boardwalk (x 412..420) is not
+    // sand, so it is not capped — but there is no road there anyway.
+    // M4/M12 still work: they deliver TO the sand at low speed.
+    const SAND_MAX = 6;
+    if (!isBoat && world.isOnSand && world.isOnSand(v.mesh.position.x, v.mesh.position.z)) {
+      v.speed = Math.max(-SAND_MAX * 0.45, Math.min(SAND_MAX, v.speed));
+    }
     // v6 BUG LAMA (v4): steering needs motion — at a standstill the
     // wheels cannot turn the car, so holding A/D (or the stick) with
     // speed 0 must not spin it in place (v5 probe: 0.96 rad in 2 s

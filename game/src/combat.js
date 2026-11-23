@@ -740,6 +740,12 @@ export function createCombat(scene, world, player, audio) {
     }
     c.speed += Math.max(-52 * dt, Math.min(20 * dt, want - c.speed));
     if (c.speed < 0) c.speed = 0;
+    // v6.6 item 5: police cars are slow on sand too (same 6 m/s cap as
+    // the player) — a chase onto the beach bogs down instead of keeping
+    // highway speed. A speed cap only, not a lethality/tier change.
+    if (world.isOnSand && world.isOnSand(c.mesh.position.x, c.mesh.position.z)) {
+      c.speed = Math.min(c.speed, 6);
+    }
     const nx = c.mesh.position.x + Math.sin(c.heading) * c.speed * dt;
     const nz = c.mesh.position.z + Math.cos(c.heading) * c.speed * dt;
     const blocked = (x, z) => world.collides && world.collides(x, z, 1.4);

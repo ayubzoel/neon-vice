@@ -69,6 +69,13 @@ function normalizeWorld(raw) {
     isInWater: typeof raw.isInWater === 'function'
       ? (x, z) => raw.isInWater(x, z)
       : (x, z) => x > CONFIG.water.x0 - 2,
+    // v6.6 item 5: beach sand (x 420..470) — the sand-speed cap in
+    // vehicles.js driveVehicle and the police cap in combat.js read
+    // this. Forwarded like isInWater; the fallback matches the
+    // sand strip (SAND_X0 420 .. WATER_X0 470).
+    isOnSand: typeof raw.isOnSand === 'function'
+      ? (x, z) => raw.isOnSand(x, z)
+      : (x, z) => x >= 420 && x < CONFIG.water.x0,
     roadGraph: raw.roadGraph || null,
     flyovers: raw.flyovers || [],
     flyoverGardens: raw.flyoverGardens || [],

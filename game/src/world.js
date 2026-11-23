@@ -177,6 +177,23 @@ export function createWorld(scene) {
   water.position.set((WATER_X0 + 600) / 2, 0.12, 0);
   scene.add(water);
 
+  // Boardwalk (v6.6 item 5): a wooden promenade along the quay/sand
+  // boundary (x 412..420, z -420..420) — the east edge of the quay,
+  // right where the sand starts. A distinct wooden deck (not concrete,
+  // not sand) so the beach reads as a destination, not just empty sand.
+  // Walkable (no colliders, same ground as the quay/sand); +1 draw call
+  // for the deck mesh itself. The sand driving corridor (x 420..450,
+  // z -50..170) stays prop-free — boardwalk lamps/benches sit at x
+  // 413/418, west of the sand.
+  const BOARDWALK = { x0: 412, x1: 420, z0: -420, z1: 420 };
+  const boardwalk = new THREE.Mesh(
+    new THREE.PlaneGeometry(BOARDWALK.x1 - BOARDWALK.x0, BOARDWALK.z1 - BOARDWALK.z0),
+    new THREE.MeshStandardMaterial({ map: TEX.makeBoardwalkTexture(), roughness: 0.9, metalness: 0 }),
+  );
+  boardwalk.rotation.x = -Math.PI / 2;
+  boardwalk.position.set((BOARDWALK.x0 + BOARDWALK.x1) / 2, 0.04, 0);
+  scene.add(boardwalk);
+
   // Park grass.
   const parkX0 = XS[PARK_CELL.col];
   const parkX1 = XS[PARK_CELL.col + 1];
@@ -1259,6 +1276,14 @@ export function createWorld(scene) {
     lampSpots.push({ x: g.fx - 1.6, z: s * 14, sy: 0.3 });
     medianObjects.push({ kind: 'lamp', x: g.fx - 1.6, z: s * 14, top: 1.83 });
   }
+  // Boardwalk lamps (v6.6 item 5): full-height street lamps along the
+  // west edge of the boardwalk (x 413, 1 m from the edge, so the 8 m
+  // walk stays clear), every 50 m. They share the street-lamp instanced
+  // meshes — +0 draw calls. Not under any flyover, so full height is
+  // fine. Poles are visual only, like all street lamps.
+  for (let z = -400; z <= 400; z += 50) {
+    lampSpots.push({ x: 413, z });
+  }
   {
     const poleGeo = new THREE.CylinderGeometry(0.09, 0.12, 6, 6);
     const poleMat = new THREE.MeshStandardMaterial({ color: 0x23262c, roughness: 0.6, metalness: 0.5 });
@@ -1456,6 +1481,14 @@ export function createWorld(scene) {
   }
   for (let i = 0; i < 6; i++) {
     benches.push({ x: 436, z: -300 + i * 120 + randRange(rng, -10, 10), rotY: -Math.PI / 2 });
+  }
+  // Boardwalk benches (v6.6 item 5): along the east edge of the
+  // boardwalk (x 418, 2 m from the edge), facing the sea (rotY -PI/2,
+  // same as the beach benches), every 70 m. Visual only, like all
+  // benches — they never block walking or driving. West of the sand
+  // driving corridor (x >= 420), so M4/M8/M12 keep a clear lane.
+  for (let z = -350; z <= 350; z += 70) {
+    benches.push({ x: 418, z, rotY: -Math.PI / 2 });
   }
   // Garden benches (v6.3): one facing the path per garden, two in the
   // 18 m gardens (benches are visual only, like the park benches).
@@ -1773,6 +1806,15 @@ export function createWorld(scene) {
     return x > WATER_X0 - 2 && x <= 600 && z >= -D / 2 && z <= D / 2;
   }
 
+  // v6.6 item 5: beach sand (x 420..470) — cars drive on it, but slowly
+  // (see the SAND_MAX cap in vehicles.js driveVehicle and the police
+  // cap in combat.js). Pedestrians walk freely; the sand is not a
+  // collider. The boardwalk (x 412..420) is NOT sand — full speed on
+  // it is impossible anyway (no road there), but it is not capped.
+  function isOnSand(x, z) {
+    return x >= SAND_X0 && x < WATER_X0 && z >= -D / 2 && z <= D / 2;
+  }
+
   // Flyover deck/ramp edge barriers, as 2D rects matching the yellow
   // barrier boxes (0.3 m thick at x = f.x ± (W2 - 0.15), z ±60 covering
   // deck + both ramps). HEIGHT-GATED: they only block callers that pass
@@ -1962,6 +2004,8 @@ export function createWorld(scene) {
     nearestSidewalk,
     collides,
     isInWater,
+    isOnSand,
+    boardwalk: BOARDWALK,
     destinations,
     counts,
     boats,
@@ -2014,6 +2058,10 @@ export function createWorld(scene) {
     nearestSidewalk: api.nearestSidewalk,
     collides: api.collides,
     isInWater: api.isInWater,
+    // v6.6 item 5: sand test + boardwalk bounds, for the harness
+    // (sand-speed cap verification, boardwalk walk probe).
+    isOnSand: api.isOnSand,
+    boardwalk: BOARDWALK,
   };
 
   return api;

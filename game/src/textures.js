@@ -112,6 +112,39 @@ export function makeSandTexture() {
   return tex;
 }
 
+// v6.6 item 5 — boardwalk planks: weathered wooden boards. Each tile is
+// one 8 m boardwalk width x ~35 m of length, with 53 thin plank bands
+// across the width (a plank is ~0.15 m wide in the walking direction)
+// in alternating warm browns, a dark gap between planks, and a few
+// grain strokes per plank. Seeded speckle, like every other texture,
+// so the boardwalk looks identical on every load.
+export function makeBoardwalkTexture() {
+  const tex = canvasTexture(256, 256, (ctx, w, h) => {
+    ctx.fillStyle = '#6b4e2e';
+    ctx.fillRect(0, 0, w, h);
+    const plankH = 4; // 256 / 4 = 64 plank bands per tile
+    for (let y = 0; y < h; y += plankH) {
+      const shade = 34 + ((y / plankH) % 4) * 4;
+      ctx.fillStyle = `hsl(28, 40%, ${shade}%)`;
+      ctx.fillRect(0, y + 1, w, plankH - 1);
+      ctx.strokeStyle = 'rgba(50,32,16,0.35)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, y + 2.5);
+      ctx.bezierCurveTo(w * 0.3, y + 1.5, w * 0.7, y + 3.5, w, y + 2.5);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(18,10,4,0.85)';
+      ctx.fillRect(0, y, w, 1);
+    }
+    speckle(ctx, w, h, 400, 'rgba(255,230,190,0.08)');
+    speckle(ctx, w, h, 300, 'rgba(30,20,10,0.25)');
+  });
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1, 24); // 1 tile across the 8 m width, 24 along 840 m
+  return tex;
+}
+
 export function makeConcreteTexture() {
   const tex = canvasTexture(256, 256, (ctx, w, h) => {
     ctx.fillStyle = '#45484f';
