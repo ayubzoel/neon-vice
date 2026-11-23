@@ -197,16 +197,30 @@ export function createWorld(scene) {
   // and road clearance (nearest road centreline > half-width + 4 m):
   //   (60,0) SW: the plaza cell (no buildings) · (60,0) SE: gap between plots
   //   (300,0) NW: open block · (300,0) SE: gap between plots
-  // gapSide: the hedge edge facing the nearest road, with ONE foot gap
-  // (4.4 m wide, 0.6 m bollard in the middle -> 1.9 m clear each side).
+  // gapSide: the hedge edge carrying the ONE foot gap (4.4 m wide,
+  // 0.6 m bollard in the middle -> 1.9 m clear each side). gapC is the
+  // gap centre along that edge: an x for 'N'/'S', a z for 'E'/'W'.
   // NOTE on the gap width: the spec's 0.7 m per side cannot pass a player
   // (radius 0.6 needs a >= 1.2 m slot under collides()); 1.9 m passes the
   // player with 0.7 m of steering slack, while a car (collision radius
   // 1.0, centre + nose + tail) needs >= 2.0 m and stays out.
+  // v6.6 (item 1): the gaps of A/B/C moved to the SOUTH edge. Before,
+  // the gap faced the road (B 'W' at x=72, A/C 'E'), and a sedan
+  // turning right at the south end of flyover x=60 drove straight east
+  // at z~77 into B's gap and wedged its nose on the bollard (parent
+  // verifier 3/3 at (69.6,78); reproduced here 3/3 at (69.5,77)).
+  // An east shift alone does NOT fix it — the car just drives 10 m
+  // further east into the shifted gap. With the gap on the south edge
+  // the road-facing edge is a CONTINUOUS hedge: the same manoeuvre now
+  // stops on the hedge and reverses out. Pedestrians enter from the
+  // south: B via the 2.25 m corridor (garden hedge z=83.75, building
+  // wall z=86), A/C across open ground. D keeps its 'W' gap: the
+  // median garden blocks a car's approach to it (parent manoeuvre
+  // 2/2 clear at fx=300), so it is not a trap.
   const FLYOVER_GARDENS = [
-    { x0: 30, x1: 48, z0: 12, z1: 30, gapSide: 'E', gapC: 21 },
-    { x0: 72, x1: 84, z0: 72, z1: 84, gapSide: 'W', gapC: 78 },
-    { x0: 270, x1: 288, z0: -30, z1: -12, gapSide: 'E', gapC: -21 },
+    { x0: 30, x1: 48, z0: 12, z1: 30, gapSide: 'S', gapC: 39 },
+    { x0: 72, x1: 84, z0: 72, z1: 84, gapSide: 'S', gapC: 78 },
+    { x0: 270, x1: 288, z0: -30, z1: -12, gapSide: 'S', gapC: 279 },
     { x0: 324, x1: 336, z0: 36, z1: 48, gapSide: 'W', gapC: 42 },
   ];
   // Garden grass + a 2 m path slab from the gap to the garden centre.
@@ -220,7 +234,8 @@ export function createWorld(scene) {
     scene.add(gg);
     const cx = (g.x0 + g.x1) / 2;
     const alongX = g.gapSide === 'E' || g.gapSide === 'W';
-    const edge = g.gapSide === 'E' ? g.x1 : g.gapSide === 'W' ? g.x0 : g.z1;
+    const edge = g.gapSide === 'E' ? g.x1 : g.gapSide === 'W' ? g.x0
+      : g.gapSide === 'N' ? g.z0 : g.z1;
     const pathLen = Math.abs(edge - (alongX ? cx : (g.z0 + g.z1) / 2));
     const path = new THREE.Mesh(
       new THREE.PlaneGeometry(alongX ? pathLen : 2, alongX ? 2 : pathLen),
@@ -1188,9 +1203,13 @@ export function createWorld(scene) {
   }
   // Garden lamps (v6.3): one lamp just inside each garden gap, so the
   // entrance reads at night. Poles are visual only, like street lamps.
+  // For an 'E'/'W' gap the lamp sits 1.5 m inside the edge, 2.5 m along
+  // it from the gap centre (off the 2 m path slab); for an 'N'/'S' gap
+  // the same, mirrored: 2.5 m along the edge, 1.5 m inside it.
   for (const g of FLYOVER_GARDENS) {
-    const lx = g.gapSide === 'E' ? g.x1 - 1.5 : g.gapSide === 'W' ? g.x0 + 1.5 : (g.x0 + g.x1) / 2;
-    const lz = g.gapSide === 'E' || g.gapSide === 'W' ? g.gapC + 2.5 : (g.z0 + g.z1) / 2;
+    const lx = g.gapSide === 'E' ? g.x1 - 1.5 : g.gapSide === 'W' ? g.x0 + 1.5 : g.gapC + 2.5;
+    const lz = g.gapSide === 'E' || g.gapSide === 'W' ? g.gapC + 2.5
+      : g.gapSide === 'N' ? g.z0 + 1.5 : g.z1 - 1.5;
     lampSpots.push({ x: lx, z: lz });
   }
   // Median garden lamps (v6.4): SHORT posts (sy 0.3 -> 1.8 m pole, head
@@ -1451,8 +1470,36 @@ export function createWorld(scene) {
       const hz0 = g.z0 + 0.5;
       const hz1 = g.z1 - 0.5;
       const segs = []; // [ax, az, bx, bz] hedge centre-lines
-      segs.push([hx0, hz0, hx1, hz0]); // north edge
-      segs.push([hx0, hz1, hx1, hz1]); // south edge
+      // North edge — gap if gapSide 'N' (gapC = gap centre x).
+      if (g.gapSide === 'N') {
+        const g0 = g.gapC - GAP_W / 2;
+        const g1 = g.gapC + GAP_W / 2;
+        segs.push([hx0, hz0, g0, hz0]);
+        segs.push([g1, hz0, hx1, hz0]);
+        bollards.push({ x: g.gapC, z: hz0 });
+        colliders.push({
+          minX: g.gapC - BOL_W / 2, maxX: g.gapC + BOL_W / 2,
+          minZ: hz0 - BOL_W / 2, maxZ: hz0 + BOL_W / 2,
+        });
+      } else {
+        segs.push([hx0, hz0, hx1, hz0]); // north edge
+      }
+      // South edge — gap if gapSide 'S' (gapC = gap centre x). v6.6:
+      // A/B/C carry their gap here so the road-facing edge stays
+      // continuous (see FLYOVER_GARDENS note).
+      if (g.gapSide === 'S') {
+        const g0 = g.gapC - GAP_W / 2;
+        const g1 = g.gapC + GAP_W / 2;
+        segs.push([hx0, hz1, g0, hz1]);
+        segs.push([g1, hz1, hx1, hz1]);
+        bollards.push({ x: g.gapC, z: hz1 });
+        colliders.push({
+          minX: g.gapC - BOL_W / 2, maxX: g.gapC + BOL_W / 2,
+          minZ: hz1 - BOL_W / 2, maxZ: hz1 + BOL_W / 2,
+        });
+      } else {
+        segs.push([hx0, hz1, hx1, hz1]); // south edge
+      }
       for (const [ex, isGap] of [[hx1, g.gapSide === 'E'], [hx0, g.gapSide === 'W']]) {
         if (!isGap) { segs.push([ex, hz0, ex, hz1]); continue; }
         const g0 = g.gapC - GAP_W / 2;
