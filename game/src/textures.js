@@ -1,262 +1,264 @@
-// Neon Vice — procedural canvas textures (Builder B). No external assets:
-// every surface in Vice Harbor is drawn on a canvas at load time.
-// Speckle uses the seeded mulberry32 from data.js (not Math.random), so the
-// textures are identical on every load — same city, same look.
+// Neon Vice — procedural canvas textures. No external assets: every
+// surface in Vice Harbor is drawn on a canvas at load time. Speckle uses
+// the seeded mulberry32 from data.js (not Math.random), so the textures
+// are identical on every load — same city, same look.
 
-import { mulberry32 } from './data.js';
+import { mulberry32 } from "./data.js";
 
-function canvasTexture(w, h, draw) {
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  draw(canvas.getContext('2d'), w, h);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.anisotropy = 4;
-  return tex;
+function paintTexture(w, h, draw) {
+  const canvas = document.createElement("canvas");
+  Object.assign(canvas, { width: w, height: h });
+  draw(canvas.getContext("2d"), w, h);
+  const tex = new THREE.CanvasTexture(canvas); // GPU upload
+  tex.anisotropy = 4; // crisp at grazing angles
+  return tex; // ready to use
 }
 
-// One fresh seeded RNG per speckle call (seed advances in call order, which
-// is fixed at load time), so each texture keeps its own grain but every load
-// draws the exact same grain.
-let speckleSeed = 1;
-function speckle(ctx, w, h, n, color, maxSize = 2) {
-  const rng = mulberry32((speckleSeed++ * 2654435761) >>> 0);
-  ctx.fillStyle = color;
-  for (let i = 0; i < n; i++) {
-    ctx.fillRect(rng() * w, rng() * h, 1 + rng() * maxSize, 1 + rng() * maxSize);
+// One fresh seeded RNG per speckle call (the seed advances in call order,
+// which is fixed at load time), so each texture keeps its own grain but
+// every load draws the exact same grain.
+let grainSeed = 1;
+function speckle(ctx, w, h, n, color, maxSize = 2) { // seeded grain
+  const rng = mulberry32((grainSeed++ * 2654435761) >>> 0);
+  Object.assign(ctx, { fillStyle: color });
+  for (let i = 0; i < n; i += 1) {
+    const px = rng() * w, py = rng() * h;
+    ctx.fillRect(px, py, 1 + rng() * maxSize, 1 + rng() * maxSize);
   }
 }
 
-// Dark night ground: asphalt-grey with speckle + a faint 30 m grid line per edge.
-export function makeGroundTexture() {
-  const tex = canvasTexture(512, 512, (ctx, w, h) => {
-    ctx.fillStyle = '#3a3e47';
-    ctx.fillRect(0, 0, w, h);
-    speckle(ctx, w, h, 1400, 'rgba(255,255,255,0.035)');
-    speckle(ctx, w, h, 500, 'rgba(0,0,0,0.25)');
-    ctx.strokeStyle = '#3a3f48';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(1, 1, w - 2, h - 2);
-  });
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(40, 30); // one tile = 30 m
-  return tex;
+function paintRect(ctx, color, x, y, w, h) {
+  Object.assign(ctx, { fillStyle: color });
+  ctx.fillRect(x, y, w, h);
 }
 
-// Road tile: 6 m of length (u) x full road width (v). Centre dashed line +
-// solid edge lines. UV u is scaled by length/6 at build time.
-export function makeAsphaltTexture() {
-  const tex = canvasTexture(128, 128, (ctx, w, h) => {
-    ctx.fillStyle = '#2b2f38';
-    ctx.fillRect(0, 0, w, h);
-    speckle(ctx, w, h, 260, 'rgba(255,255,255,0.05)');
-    speckle(ctx, w, h, 160, 'rgba(0,0,0,0.35)');
-    // Edge lines (solid, pale).
-    ctx.fillStyle = 'rgba(226,232,240,0.75)';
-    ctx.fillRect(0, 4, w, 3);
-    ctx.fillRect(0, h - 7, w, 3);
-    // Centre dashed line (amber).
-    ctx.fillStyle = '#c9a227';
-    ctx.fillRect(14, h / 2 - 3, w - 28, 6);
-  });
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.ClampToEdgeWrapping;
-  return tex;
+function repeatWrap(tex, rx, ry) {
+  Object.assign(tex, { wrapS: THREE.RepeatWrapping, wrapT: THREE.RepeatWrapping });
+  tex.repeat.set(rx, ry);
 }
 
-// Sidewalk tile: 6 m of length (u) x 3 m wide (v). Curb edge near the road.
-export function makeSidewalkTexture() {
-  const tex = canvasTexture(128, 128, (ctx, w, h) => {
-    ctx.fillStyle = '#7a7e89';
-    ctx.fillRect(0, 0, w, h);
-    speckle(ctx, w, h, 320, 'rgba(255,255,255,0.06)');
-    speckle(ctx, w, h, 200, 'rgba(0,0,0,0.22)');
-    // Expansion joints every 2 m.
-    ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    for (let x = 0; x <= w; x += 43) ctx.fillRect(x, 0, 2, h);
-    // Curb face at the road edge (v = 0 side).
-    ctx.fillStyle = '#3c4048';
-    ctx.fillRect(0, 0, w, 10);
-    ctx.fillStyle = 'rgba(255,255,255,0.14)';
-    ctx.fillRect(0, 10, w, 2);
-  });
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.ClampToEdgeWrapping;
-  return tex;
+function clampWrap(tex) {
+  Object.assign(tex, { wrapS: THREE.RepeatWrapping, wrapT: THREE.ClampToEdgeWrapping });
 }
 
-// Zebra tile: white bars across the road width (u), 3 m deep (v).
-export function makeZebraTexture() {
-  const tex = canvasTexture(128, 32, (ctx, w, h) => {
-    ctx.fillStyle = '#1b1e24';
-    ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = 'rgba(240,244,248,0.92)';
-    for (let x = 0; x < w; x += 16) ctx.fillRect(x, 1, 9, h - 2);
-  });
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.ClampToEdgeWrapping;
-  return tex;
+function finish(tex, rx, ry) {
+  repeatWrap(tex, rx, ry);
+  return tex; // ready to use
 }
 
-export function makeSandTexture() {
-  const tex = canvasTexture(256, 256, (ctx, w, h) => {
-    ctx.fillStyle = '#8a7648';
-    ctx.fillRect(0, 0, w, h);
-    speckle(ctx, w, h, 900, 'rgba(255,240,200,0.10)');
-    speckle(ctx, w, h, 700, 'rgba(60,45,20,0.20)');
-  });
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(12, 28);
-  return tex;
+function finishClamp(tex) {
+  clampWrap(tex);
+  return tex; // ready to use
 }
 
-// v6.6 item 5 — boardwalk planks: weathered wooden boards. Each tile is
-// one 8 m boardwalk width x ~35 m of length, with 53 thin plank bands
-// across the width (a plank is ~0.15 m wide in the walking direction)
-// in alternating warm browns, a dark gap between planks, and a few
-// grain strokes per plank. Seeded speckle, like every other texture,
-// so the boardwalk looks identical on every load.
-export function makeBoardwalkTexture() {
-  const tex = canvasTexture(256, 256, (ctx, w, h) => {
-    ctx.fillStyle = '#6b4e2e';
-    ctx.fillRect(0, 0, w, h);
-    const plankH = 4; // 256 / 4 = 64 plank bands per tile
-    for (let y = 0; y < h; y += plankH) {
-      const shade = 34 + ((y / plankH) % 4) * 4;
-      ctx.fillStyle = `hsl(28, 40%, ${shade}%)`;
-      ctx.fillRect(0, y + 1, w, plankH - 1);
-      ctx.strokeStyle = 'rgba(50,32,16,0.35)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(0, y + 2.5);
-      ctx.bezierCurveTo(w * 0.3, y + 1.5, w * 0.7, y + 3.5, w, y + 2.5);
-      ctx.stroke();
-      ctx.fillStyle = 'rgba(18,10,4,0.85)';
-      ctx.fillRect(0, y, w, 1);
+// Night ground, dark asphalt-grey: speckle plus a faint 30 m grid line on each edge.
+function makeGroundTexture() {
+  const tex = paintTexture(512, 512, (ctx, w, h) => {
+    paintRect(ctx, "#3a3e47", 0, 0, w, h);
+    speckle(ctx, w, h, 1400, "rgba(255,255,255,0.035)");
+    speckle(ctx, w, h, 500, "rgba(0,0,0,0.25)");
+    ctx.strokeStyle = "#3a3f48";
+    ctx.lineWidth = 3; // frame line
+    ctx.strokeRect(1, 1, w - 2, h - 2); // edge frame
+  });
+  return finish(tex, 40, 30); // one tile = 30 m
+}
+
+// Road tile: 6 m long (u) by the full road width (v), with a centre dash
+// and solid edges. UV u scales by length/6 at build time.
+function makeAsphaltTexture() {
+  const tex = paintTexture(128, 128, (ctx, w, h) => {
+    paintRect(ctx, "#2b2f38", 0, 0, w, h);
+    speckle(ctx, w, h, 260, "rgba(255,255,255,0.05)");
+    speckle(ctx, w, h, 160, "rgba(0,0,0,0.35)");
+    // Pale solid edge lines.
+    paintRect(ctx, "rgba(226,232,240,0.75)", 0, 4, w, 3);
+    paintRect(ctx, "rgba(226,232,240,0.75)", 0, h - 7, w, 3);
+    // Amber centre dash.
+    paintRect(ctx, "#c9a227", 14, h / 2 - 3, w - 28, 6);
+  });
+  return finishClamp(tex);
+}
+
+// Sidewalk tile: 6 m long (u) by 3 m wide (v), curb edge by the road.
+function makeSidewalkTexture() {
+  const tex = paintTexture(128, 128, (ctx, w, h) => {
+    paintRect(ctx, "#7a7e89", 0, 0, w, h);
+    speckle(ctx, w, h, 320, "rgba(255,255,255,0.06)");
+    speckle(ctx, w, h, 200, "rgba(0,0,0,0.22)");
+    // Joints every 2 m.
+    ctx.fillStyle = "rgba(0,0,0,0.28)";
+    for (let x = 0; x <= w; x += 43) {
+      ctx.fillRect(x, 0, 2, h);
     }
-    speckle(ctx, w, h, 400, 'rgba(255,230,190,0.08)');
-    speckle(ctx, w, h, 300, 'rgba(30,20,10,0.25)');
+    // Curb face on the road side (v = 0).
+    paintRect(ctx, "#3c4048", 0, 0, w, 10);
+    paintRect(ctx, "rgba(255,255,255,0.14)", 0, 10, w, 2);
   });
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(1, 24); // 1 tile across the 8 m width, 24 along 840 m
-  return tex;
+  return finishClamp(tex);
 }
 
-export function makeConcreteTexture() {
-  const tex = canvasTexture(256, 256, (ctx, w, h) => {
-    ctx.fillStyle = '#45484f';
-    ctx.fillRect(0, 0, w, h);
-    speckle(ctx, w, h, 800, 'rgba(255,255,255,0.05)');
-    speckle(ctx, w, h, 500, 'rgba(0,0,0,0.25)');
-    ctx.strokeStyle = 'rgba(0,0,0,0.30)';
-    ctx.lineWidth = 2;
-    for (let i = 0; i <= 4; i++) {
-      ctx.beginPath(); ctx.moveTo(0, i * 64); ctx.lineTo(w, i * 64); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(i * 64, 0); ctx.lineTo(i * 64, h); ctx.stroke();
+// Crossing tile: white bars spanning the road width (u), 3 m deep (v).
+function makeZebraTexture() {
+  const tex = paintTexture(128, 32, (ctx, w, h) => {
+    paintRect(ctx, "#1b1e24", 0, 0, w, h);
+    ctx.fillStyle = "rgba(240,244,248,0.92)";
+    for (let x = 0; x < w; x += 16) {
+      ctx.fillRect(x, 1, 9, h - 2);
     }
   });
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(6, 18);
-  return tex;
+  return finishClamp(tex);
 }
 
-export function makeGrassTexture() {
-  const tex = canvasTexture(256, 256, (ctx, w, h) => {
-    ctx.fillStyle = '#1d3320';
-    ctx.fillRect(0, 0, w, h);
-    speckle(ctx, w, h, 1200, 'rgba(120,200,120,0.10)');
-    speckle(ctx, w, h, 600, 'rgba(0,0,0,0.30)');
+function makeSandTexture() {
+  const tex = paintTexture(256, 256, (ctx, w, h) => {
+    paintRect(ctx, "#8a7648", 0, 0, w, h);
+    speckle(ctx, w, h, 900, "rgba(255,240,200,0.10)");
+    speckle(ctx, w, h, 700, "rgba(60,45,20,0.20)");
   });
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(6, 6);
-  return tex;
+  return finish(tex, 12, 28);
 }
 
-// Facade with lit windows. kind: 'tower' | 'mid' | 'house' | 'warehouse' |
-// 'worship' | 'vital-hospital' | 'vital-police'. The same canvas is used as
-// map + emissiveMap, so lit windows glow at night while the facade stays dark.
-export function makeBuildingTexture(kind) {
-  return makeBuildingTextureBase(kind, null);
+// Boardwalk planks: weathered wooden boards. Each tile is one 8 m
+// boardwalk width x ~35 m of length, with thin plank bands across the
+// width (a plank is ~0.15 m wide in the walking direction) in
+// alternating warm browns, a dark gap between planks, and a few grain
+// strokes per plank. Seeded speckle, like every other texture, so the
+// boardwalk looks identical on every load.
+function makeBoardwalkTexture() {
+  const tex = paintTexture(256, 256, (ctx, w, h) => {
+    paintRect(ctx, "#6b4e2e", 0, 0, w, h);
+    const plankH = 4; // 64 bands per tile
+    for (let y = 0; y < h; y = y + plankH) {
+      const band = y / plankH;
+      const shade = 34 + (band % 4) * 4;
+      paintRect(ctx, `hsl(28, 40%, ${shade}%)`, 0, y + 1, w, plankH - 1);
+      ctx.strokeStyle = "rgba(50,32,16,0.35)";
+      ctx.lineWidth = 1; // hairline grain
+      const grain = new Path2D();
+      grain.moveTo(0, y + 2.5);
+      grain.bezierCurveTo(w * 0.3, y + 1.5, w * 0.7, y + 3.5, w, y + 2.5);
+      ctx.stroke(grain);
+      paintRect(ctx, "rgba(18,10,4,0.85)", 0, y, w, 1);
+    }
+    speckle(ctx, w, h, 400, "rgba(255,230,190,0.08)");
+    speckle(ctx, w, h, 300, "rgba(30,20,10,0.25)");
+  });
+  return finish(tex, 1, 24); // 1 tile across the 8 m width, 24 along 840 m
 }
 
-// v6.6 item 7 — light-base variant for the pastel facades: the same
-// window pattern, but a LIGHT grey base (#b5b5b5) instead of the dark
-// one. A pastel per-instance color multiplies a dark base into a still-
-// dark facade (0.14 x 1.0 = 0.14) — invisible as "pastel". Multiplying
-// a light base gives a bright pastel (0.71 x 1.0 = 0.71 pink/tosca/
-// mint), which is the Ocean Drive look. The windows are the same warm
-// lit ones, so they still read at night.
-export function makeBuildingTextureLight(kind) {
-  return makeBuildingTextureBase(kind, '#b5b5b5');
+function makeConcreteTexture() {
+  const tex = paintTexture(256, 256, (ctx, w, h) => {
+    paintRect(ctx, "#45484f", 0, 0, w, h);
+    speckle(ctx, w, h, 800, "rgba(255,255,255,0.05)");
+    speckle(ctx, w, h, 500, "rgba(0,0,0,0.25)");
+    ctx.strokeStyle = "rgba(0,0,0,0.30)";
+    ctx.lineWidth = 2; // grid lines
+    const grid = new Path2D();
+    for (let i = 0; i <= 4; i += 1) {
+      grid.moveTo(0, i * 64);
+      grid.lineTo(w, i * 64);
+      grid.moveTo(i * 64, 0);
+      grid.lineTo(i * 64, h);
+    }
+    ctx.stroke(grid);
+  });
+  return finish(tex, 6, 18);
 }
 
-function makeBuildingTextureBase(kind, lightBase) {
-  const base = lightBase ?? {
-    tower: '#232a36',
-    mid: '#2a2622',
-    house: '#33302a',
-    warehouse: '#2e2a26',
-    worship: '#3a2f26',
-    'vital-hospital': '#3c4148',
-    'vital-police': '#232c3e',
-  }[kind] ?? '#2a2a2a';
-  const cols = kind === 'warehouse' ? 5 : kind === 'house' ? 4 : 7;
-  const rows = kind === 'tower' ? 14 : kind === 'house' ? 2 : kind === 'warehouse' ? 2 : 9;
-  return canvasTexture(256, 256, (ctx, w, h) => {
-    ctx.fillStyle = base;
-    ctx.fillRect(0, 0, w, h);
-    // Subtle vertical panel shading.
-    ctx.fillStyle = 'rgba(0,0,0,0.18)';
-    for (let x = 0; x < w; x += 36) ctx.fillRect(x, 0, 2, h);
-    // Dark ground-floor band.
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fillRect(0, h - 18, w, 18);
-    const cw = w / cols;
-    const ch = h / rows;
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const x = c * cw + cw * 0.22;
-        const y = r * ch + ch * 0.22;
-        const ww = cw * 0.56;
-        const wh = ch * 0.56;
-        const lit = Math.random() < 0.62;
-        if (kind === 'worship' && r < rows - 1) {
-          // Tall arched windows: warm, mostly lit.
-          ctx.fillStyle = Math.random() < 0.8 ? '#ffca6a' : '#10151d';
-          ctx.fillRect(x, y - ch * 0.2, ww, wh + ch * 0.4);
-          continue;
+function makeGrassTexture() {
+  const tex = paintTexture(256, 256, (ctx, w, h) => {
+    paintRect(ctx, "#1d3320", 0, 0, w, h);
+    speckle(ctx, w, h, 1200, "rgba(120,200,120,0.10)");
+    speckle(ctx, w, h, 600, "rgba(0,0,0,0.30)");
+  });
+  return finish(tex, 6, 6);
+}
+
+// Facades with glowing windows. kind is 'tower' | 'mid' | 'house' |
+// 'warehouse' | 'worship' | 'vital-hospital' | 'vital-police'. One canvas
+// serves as map + emissiveMap, so lit windows shine at night while the
+// facade itself stays dark.
+function makeBuildingTexture(kind) {
+  return makeBuildingTextureBase(kind, null); // dark base
+}
+
+// Light-base variant for the pastel facades: the same window pattern, but
+// a LIGHT grey base (#b5b5b5) instead of the dark one. A pastel
+// per-instance color multiplies a dark base into a still-dark facade
+// (0.14 x 1.0 = 0.14) — invisible as "pastel". Multiplying a light base
+// gives a bright pastel (0.71 x 1.0 = 0.71 pink/tosca/mint), which is the
+// Ocean Drive look. The windows are the same warm lit ones, so they
+// still read at night.
+function makeBuildingTextureLight(kind) {
+  return makeBuildingTextureBase(kind, "#b5b5b5");
+}
+
+const FACADE_BASES = new Map([
+  ["tower", "#232a36"],
+  ["mid", "#2a2622"],
+  ["house", "#33302a"],
+  ["warehouse", "#2e2a26"],
+  ["worship", "#3a2f26"],
+  ["vital-hospital", "#3c4148"],
+  ["vital-police", "#232c3e"],
+]);
+const FACADE_COLS = { warehouse: 5, house: 4 };
+const FACADE_ROWS = { tower: 14, house: 2, warehouse: 2 };
+const LIT_WINDOWS = ["#ffd28a", "#ffb347", "#ffe9b0", "#f9a8d4"];
+
+function makeBuildingTextureBase(kind, lightBase) { // shared facade painter
+  const base = lightBase ?? FACADE_BASES.get(kind) ?? "#2a2a2a";
+  const cols = FACADE_COLS[kind] ?? 7;
+  const rows = FACADE_ROWS[kind] ?? 9;
+  return paintTexture(256, 256, (ctx, w, h) => {
+    paintRect(ctx, base, 0, 0, w, h);
+    // Faint vertical panel shading.
+    ctx.fillStyle = "rgba(0,0,0,0.18)";
+    for (let x = 0; x < w; x += 36) {
+      ctx.fillRect(x, 0, 2, h);
+    }
+    // Dark band along the ground floor.
+    paintRect(ctx, "rgba(0,0,0,0.35)", 0, h - 18, w, 18);
+    const cw = w / cols; // cell width
+    const ch = h / rows; // cell height
+    for (let r = 0; r < rows; r += 1) {
+      for (let c = 0; c < cols; c += 1) {
+        const x = cw * (c + 0.22);
+        const y = ch * (r + 0.22);
+        const ww = cw * 0.56; // window width
+        const wh = ch * 0.56; // window height
+        if (kind === "worship" && r < rows - 1) {
+          // Tall arches: warm, usually lit.
+          const tint = Math.random() < 0.8 ? "#ffca6a" : "#10151d";
+          paintRect(ctx, tint, x, y - ch * 0.2, ww, wh + ch * 0.4);
+          continue; // next window
         }
-        ctx.fillStyle = lit
-          ? ['#ffd28a', '#ffb347', '#ffe9b0', '#f9a8d4'][Math.floor(Math.random() * 4)]
-          : '#0d1219';
-        ctx.fillRect(x, y, ww, wh);
+        const lit = Math.random() < 0.62; // most windows lit
+        const tint = lit
+          ? LIT_WINDOWS[Math.floor(Math.random() * 4)]
+          : "#0d1219";
+        paintRect(ctx, tint, x, y, ww, wh);
       }
     }
-    if (kind === 'vital-hospital') {
-      // Red cross band near the top.
-      ctx.fillStyle = '#c2272f';
-      ctx.fillRect(w * 0.32, 8, w * 0.36, 26);
-      ctx.fillStyle = '#f8fafc';
-      ctx.fillRect(w * 0.47, 12, w * 0.06, 18);
-      ctx.fillRect(w * 0.40, 17, w * 0.20, 8);
+    if (kind === "vital-hospital") {
+      // Red cross near the top.
+      paintRect(ctx, "#c2272f", w * 0.32, 8, w * 0.36, 26);
+      paintRect(ctx, "#f8fafc", w * 0.47, 12, w * 0.06, 18);
+      paintRect(ctx, "#f8fafc", w * 0.4, 17, w * 0.2, 8);
     }
-    if (kind === 'vital-police') {
-      ctx.fillStyle = '#2563eb';
-      ctx.fillRect(0, 8, w, 24);
-      ctx.fillStyle = '#f8fafc';
-      ctx.font = 'bold 15px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('POLICE', w / 2, 26);
+    if (kind === "vital-police") {
+      paintRect(ctx, "#2563eb", 0, 8, w, 24);
+      ctx.fillStyle = "#f8fafc";
+      ctx.font = "bold 15px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("POLICE", w / 2, 26);
     }
-    if (kind === 'worship') {
-      ctx.fillStyle = '#ffd28a';
-      ctx.fillRect(w / 2 - 2, 4, 4, 22);
-      ctx.fillRect(w / 2 - 8, 10, 16, 4);
+    if (kind === "worship") {
+      paintRect(ctx, "#ffd28a", w / 2 - 2, 4, 4, 22);
+      paintRect(ctx, "#ffd28a", w / 2 - 8, 10, 16, 4);
     }
   });
 }
+
+export { makeGroundTexture, makeAsphaltTexture, makeSidewalkTexture, makeZebraTexture, makeSandTexture, makeBoardwalkTexture, makeConcreteTexture, makeGrassTexture, makeBuildingTexture, makeBuildingTextureLight };

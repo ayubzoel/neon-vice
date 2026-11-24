@@ -1,121 +1,150 @@
-// Neon Vice — Builder C: save / load (localStorage, one slot).
-// Stores position, money, weapons, jacket, mission progress, game hour and
-// settings. The start screen shows Continue when a save exists; missions
-// autosave on completion.
+// Neon Vice — progress + preferences kept in localStorage, one slot.
 //
-// v5: settings live in their OWN key (neonvice-settings-v1), separate from
-// the game save, so a volume/quality change on the title screen survives a
-// reload even when no game save exists yet (and survives wiping progress).
+// The game save and the preferences live under separate keys on purpose:
+// changing volume or quality on the title screen must survive a reload
+// even before any game has been saved, and wiping progress must not
+// wipe the player's preferences with it.
 
-const KEY = 'neonvice-save-v1';
-const SETTINGS_KEY = 'neonvice-settings-v1';
+const SAVE_KEY = "neonvice-save-v1";
+const PREFS_KEY = "neonvice-settings-v1";
+const SAVE_VERSION = 1;
 
-export const DEFAULT_SETTINGS = {
-  lang: 'en', volume: 0.7, musicVolume: 0.8, sfxVolume: 0.9, muted: false,
-  quality: 'high', camSensitivity: 1, camFollow: true,
+const DEFAULT_SETTINGS = {
+  lang: "en",
+  volume: 0.7,
+  musicVolume: 0.8,
+  sfxVolume: 0.9,
+  muted: false,
+  quality: "high",
+  camSensitivity: 1,
+  camFollow: true,
 };
 
-export function loadSettings(overrides = {}) {
-  const out = { ...DEFAULT_SETTINGS, ...overrides };
+// Run fn; anything thrown (private mode, quota, corrupt JSON) yields fallback.
+function attempt(fn, fallback) {
   try {
-    const raw = window.localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return out;
-    const data = JSON.parse(raw);
-    for (const k of Object.keys(DEFAULT_SETTINGS)) {
-      if (data[k] !== undefined) out[k] = data[k];
-    }
-    // Clamp / sanitize (a hand-edited value must never break boot).
-    out.volume = Math.max(0, Math.min(1, Number(out.volume) || 0.7));
-    out.musicVolume = Math.max(0, Math.min(1, Number(out.musicVolume) || 0.8));
-    out.sfxVolume = Math.max(0, Math.min(1, Number(out.sfxVolume) || 0.9));
-    out.muted = !!out.muted;
-    out.quality = out.quality === 'low' ? 'low' : 'high';
-    out.camSensitivity = Math.max(0.5, Math.min(2, Number(out.camSensitivity) || 1));
-    out.camFollow = out.camFollow !== false;
-    out.lang = out.lang === 'id' ? 'id' : 'en';
-  } catch { /* corrupted settings: fall back to defaults */ }
-  return out;
-}
-
-export function persistSettings(settings) {
-  try {
-    const data = {};
-    for (const k of Object.keys(DEFAULT_SETTINGS)) data[k] = settings[k];
-    window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(data));
-    return true;
-  } catch {
-    return false;
+    return fn();
+  } catch (caught) {
+    return fallback;
   }
 }
 
-export function clearSettings() {
-  try { window.localStorage.removeItem(SETTINGS_KEY); } catch { /* ignore */ }
+function readJson(key) {
+  const raw = attempt(() => window.localStorage.getItem(key), null);
+  return raw ? attempt(() => JSON.parse(raw), null) : null;
 }
 
-export function createSave(ctx) {
+function writeJson(key, value) {
+  return attempt(
+    () => window.localStorage.setItem(key, JSON.stringify(value)) === undefined,
+    false,
+  );
+}
+
+function dropKey(key) {
+  attempt(() => window.localStorage.removeItem(key));
+}
+
+function hasKey(key) {
+  return attempt(() => window.localStorage.getItem(key) !== null, false);
+}
+
+// Pin a number into [lo, hi]; a missing or non-numeric input falls back.
+function pinch(value, lo, hi, fallback) {
+  const n = Number(value) || fallback;
+  return n < lo ? lo : n > hi ? hi : n;
+}
+
+const FIXUPS = [
+  ["volume", (v) => pinch(v, 0, 1, 0.7)],
+  ["musicVolume", (v) => pinch(v, 0, 1, 0.8)],
+  ["sfxVolume", (v) => pinch(v, 0, 1, 0.9)],
+  ["muted", (v) => !!v],
+  ["quality", (v) => (v === "low" ? "low" : "high")],
+  ["camSensitivity", (v) => pinch(v, 0.5, 2, 1)],
+  ["camFollow", (v) => v !== false],
+  ["lang", (v) => (v === "id" ? "id" : "en")],
+];
+
+function loadSettings(overrides = {}) {
+  const merged = Object.assign({}, DEFAULT_SETTINGS, overrides);
+  const stored = readJson(PREFS_KEY);
+  if (stored && typeof stored === "object") {
+    for (const k in DEFAULT_SETTINGS) {
+      if (stored[k] !== undefined) merged[k] = stored[k];
+    }
+  }
+  // A hand-edited value must never break boot: normalise every field.
+  return FIXUPS.reduce((acc, [key, fix]) => {
+    acc[key] = fix(acc[key]);
+    return acc;
+  }, merged);
+}
+
+function persistSettings(settings) {
+  const picked = Object.fromEntries(
+    Object.keys(DEFAULT_SETTINGS).map((k) => [k, settings[k]]),
+  );
+  return writeJson(PREFS_KEY, picked);
+}
+
+function clearSettings() {
+  dropKey(PREFS_KEY);
+}
+
+function snapshot(ctx) {
+  const { group, heading, hp, jacketColor } = ctx.player;
+  const { x, z } = group.position;
+  const { smg, pistol } = ctx.combat.weapons;
+  const { current } = ctx.combat;
+  const money = ctx.getMoney();
+  const missions = ctx.missions.getState();
+  const pkgs = ctx.packages && ctx.packages.getState();
+  const { hour } = ctx.weather;
+  const s = ctx.settings;
+  const jacketsFn = ctx.getOwnedJackets;
+  const owned =
+    typeof jacketsFn === "function" ? jacketsFn() : [jacketColor];
   return {
-    exists() {
-      try {
-        return !!window.localStorage.getItem(KEY);
-      } catch {
-        return false;
-      }
+    version: SAVE_VERSION,
+    savedAt: +new Date(),
+    x,
+    z,
+    heading,
+    money,
+    hp,
+    weapons: { // pistol + smg magazines, reserves, ownership
+      smgOwned: smg.owned,
+      pistolMag: pistol.mag,
+      pistolReserve: pistol.reserve,
+      smgMag: smg.mag,
+      smgReserve: smg.reserve,
+      current,
     },
-    save() {
-      try {
-        const data = {
-          version: 1,
-          savedAt: Date.now(),
-          x: ctx.player.group.position.x,
-          z: ctx.player.group.position.z,
-          heading: ctx.player.heading,
-          money: ctx.getMoney(),
-          hp: ctx.player.hp,
-          weapons: {
-            smgOwned: ctx.combat.weapons.smg.owned,
-            pistolMag: ctx.combat.weapons.pistol.mag,
-            pistolReserve: ctx.combat.weapons.pistol.reserve,
-            smgMag: ctx.combat.weapons.smg.mag,
-            smgReserve: ctx.combat.weapons.smg.reserve,
-            current: ctx.combat.current,
-          },
-          jacketColor: ctx.player.jacketColor,
-          // Jackets bought at Vice Threads (owned = equip free in Backpack).
-          // Seeded from the current jacket when the getter is absent.
-          ownedJackets: ctx.getOwnedJackets
-            ? ctx.getOwnedJackets()
-            : [ctx.player.jacketColor],
-          missions: ctx.missions.getState(),
-          packages: ctx.packages ? ctx.packages.getState() : undefined, // v6.5 item 2
-          hour: ctx.weather.hour,
-          lang: ctx.settings.lang,
-          volume: ctx.settings.volume,
-          musicVolume: ctx.settings.musicVolume,
-          sfxVolume: ctx.settings.sfxVolume,
-          muted: !!ctx.settings.muted,
-          quality: ctx.settings.quality,
-          camSensitivity: ctx.settings.camSensitivity,
-          camFollow: ctx.settings.camFollow !== false,
-        };
-        window.localStorage.setItem(KEY, JSON.stringify(data));
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    load() {
-      try {
-        const raw = window.localStorage.getItem(KEY);
-        if (!raw) return null;
-        return JSON.parse(raw);
-      } catch {
-        return null;
-      }
-    },
-    clear() {
-      try {
-        window.localStorage.removeItem(KEY);
-      } catch { /* ignore */ }
-    },
+    jacketColor,
+    // Jackets from Vice Threads: owning one means free equip in Backpack.
+    ownedJackets: owned,
+    missions,
+    packages: pkgs,
+    hour,
+    lang: s.lang,
+    volume: s.volume,
+    musicVolume: s.musicVolume,
+    sfxVolume: s.sfxVolume,
+    muted: !!s.muted,
+    quality: s.quality,
+    camSensitivity: s.camSensitivity,
+    camFollow: s.camFollow !== false,
   };
 }
+
+function createSave(ctx) {
+  return {
+    exists: () => hasKey(SAVE_KEY),
+    save: () => writeJson(SAVE_KEY, snapshot(ctx)),
+    load: () => readJson(SAVE_KEY),
+    clear: () => dropKey(SAVE_KEY),
+  };
+}
+
+export { DEFAULT_SETTINGS, loadSettings, persistSettings, clearSettings, createSave };

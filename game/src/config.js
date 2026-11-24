@@ -1,116 +1,78 @@
-// Neon Vice — shared constants for the game. (Was the v1 scaffold: a minimal
-// playable skeleton on flat ground. The city is built now — street grid,
-// buildings, beach/water, shops, missions, vehicles, weather and traffic all
-// run on top of these values; the map stays small on purpose, Ayub's brief:
-// "map kecil, yang penting smooth dan tanpa bug": 1200 x 900 m.)
+// Neon Vice — the one shared tuning table for the whole game.
+//
+// Streets, beach, shops, missions, vehicles, weather and the police all
+// read their numbers from here, so a balance tweak means editing this
+// file only. The field stays 1200 by 900 metres on purpose: a compact
+// map that runs smoothly matters more than a big one.
 
-export const CONFIG = {
-  title: 'Neon Vice',
-  city: 'Vice Harbor',
-  heroName: 'Vera Cruz',
+function keyed(rows, shape) {
+  const table = {};
+  for (const row of rows) table[row[0]] = shape(row);
+  return table;
+}
 
-  // World: flat ground, metres. The player is clamped inside these bounds.
-  world: {
-    width: 1200,
-    depth: 900,
-    // Plaza disc at the spawn so the player can see movement at a glance.
-    plazaRadius: 26,
-  },
+const placeRows = [
+  ["plaza", 0, 0, "Plaza"],
+  ["ricosBar", 150, 100, "Rico's Bar"],
+  ["northMarket", -300, -300, "North Market"],
+  ["westDocks", -500, 200, "West Docks"],
+  ["eastMarina", 440, 150, "East Marina"],
+  ["marinaDock", 465, 150, "Marina Dock"],
+  ["southBeach", 100, 400, "South Beach"],
+  ["uptown", -400, -350, "Uptown"],
+  ["downtown", 300, -300, "Downtown"],
+  ["airport", -100, -400, "Airport"],
+  ["warehouse", -450, -100, "Warehouse"],
+  ["impound", 350, 250, "Police Impound"],
+  ["yacht", 440, 0, "Yacht Dock"],
+  ["gunShop", -200, -200, "Gun Shop"],
+  ["clothShop", 200, -100, "Clothing"],
+  ["bank", 300, -280, "Vice Bank"],
+  ["safehouse", -400, -330, "Safehouse"],
+];
 
-  spawn: { x: 0, z: 0, heading: 0 },
+const weaponRows = [
+  ["pistol", "Pistol", 34, 12, 120, 60, 0.28, 1.1, 0, 100],
+  ["smg", "SMG", 16, 30, 240, 55, 0.09, 1.4, 1500, 150],
+];
 
-  player: {
-    walkSpeed: 6, // m/s — brisk on foot, faster than Neon Bay v5's 1.5
-    runSpeed: 11, // m/s while Shift / RUN is held
-    turnSpeed: 2.6, // rad/s (A/D or stick X)
-    radius: 0.6,
-  },
+const colorRows = [
+  ["sky", 0x8EC9EE],
+  ["fog", 0x9FC6E2],
+  ["ground", 0x3A3F46],
+  ["gridLine", 0x565D68],
+  ["plaza", 0x8A8F98],
+  ["pylon", 0x22D3EE],
+  ["heroBody", 0x14B8A6],
+  ["heroHead", 0xE8B88A],
+  ["heroHair", 0x1F2937],
+];
 
-  camera: {
-    distance: 9, // metres behind the hero
-    height: 4.5, // metres above the hero
-    lookHeight: 1.6, // metres above ground the camera looks at
-    fov: 60,
-    near: 0.1,
-    far: 2500,
-  },
+const tierRows = [[0, 0], [2, 0], [2, 1], [3, 2], [3, 3], [4, 4]];
 
-  colors: {
-    sky: 0x8ec9ee, // daytime sky blue
-    fog: 0x9fc6e2, // haze toward the horizon
-    ground: 0x3a3f46, // dark asphalt-grey ground
-    gridLine: 0x565d68, // subtle grid every 30 m, for motion reference
-    plaza: 0x8a8f98, // lighter concrete disc at the spawn
-    pylon: 0x22d3ee, // neon-cyan corner markers
-    heroBody: 0x14b8a6, // teal jacket
-    heroHead: 0xe8b88a, // skin tone
-    heroHair: 0x1f2937, // dark hair
-  },
-  // --- Builder C (gameplay) additions — new keys only, scaffold keys untouched ---
-  money: { start: 250, debt: 50000 },
-
-  weapons: {
-    pistol: { name: 'Pistol', damage: 34, magSize: 12, reserveMax: 120, range: 60, fireInterval: 0.28, reloadTime: 1.1, price: 0, ammoPrice: 100 },
-    smg: { name: 'SMG', damage: 16, magSize: 30, reserveMax: 240, range: 55, fireInterval: 0.09, reloadTime: 1.4, price: 1500, ammoPrice: 150 },
-  },
-
-  // Named places the game reads everywhere (missions, shops, map, vehicle
-  // spawns): the live place table, not a fallback — world.destinations is
-  // built from the same coordinates.
-  // Coordinates are inside the 1200x900 field (x -600..600, z -450..450).
-  places: {
-    plaza: { x: 0, z: 0, name: 'Plaza' },
-    ricosBar: { x: 150, z: 100, name: "Rico's Bar" },
-    northMarket: { x: -300, z: -300, name: 'North Market' },
-    westDocks: { x: -500, z: 200, name: 'West Docks' },
-    eastMarina: { x: 440, z: 150, name: 'East Marina' },
-    marinaDock: { x: 465, z: 150, name: 'Marina Dock' },
-    southBeach: { x: 100, z: 400, name: 'South Beach' },
-    uptown: { x: -400, z: -350, name: 'Uptown' },
-    downtown: { x: 300, z: -300, name: 'Downtown' },
-    airport: { x: -100, z: -400, name: 'Airport' },
-    warehouse: { x: -450, z: -100, name: 'Warehouse' },
-    impound: { x: 350, z: 250, name: 'Police Impound' },
-    yacht: { x: 440, z: 0, name: 'Yacht Dock' },
-    gunShop: { x: -200, z: -200, name: 'Gun Shop' },
-    clothShop: { x: 200, z: -100, name: 'Clothing' },
-    bank: { x: 300, z: -280, name: 'Vice Bank' },
-    safehouse: { x: -400, z: -330, name: 'Safehouse' },
-  },
-
-  // East-edge water strip where the boat lives (matches Builder B's
-  // WATER_X0 = 470: water starts at x 470, beach sand 420..470).
-  water: { x0: 470, x1: 600, z0: -450, z1: 450 },
-
-  weather: {
-    startHour: 7, // morning by default (v4) — the first mission starts in
-    // daylight so the four phases (Pagi/Siang/Sore/Malam) are visible
-    // within the first minutes of play; was 21 (night) in v1-v3.
-    dayLengthSec: 600, // one full game day = 10 min of game time
-    rainChance: 0.25, // chance a light shower starts each game hour
-  },
-
-  // Wanted (Builder B v3): 5 stars like Neon Bay. Bay's tiers, scaled to
-  // Vice Harbor's 1200x900 map (no heli/tank — the map is small and smooth
-  // is the priority, so high stars add more patrol cars instead):
-  //   Bay  1★ 2 cars | 2★ 2 cars+2 bikes | 3★ 3+3 | 4★ 3+3+1 heli | 5★ 4+4+2 heli+1 tank
-  //   Vice 1★ 2 foot | 2★ 2 foot+1 car  | 3★ 3+2 | 4★ 3+3        | 5★ 4+4
-  // Decay: 25 s quiet per star (Bay: 45 s), and only while no police unit
-  // can see the player (sightRange 70 m; Bay: 150 m on a 9600 m map).
-  // v6.3: the silent per-star decay is REPLACED by a visible escape
-  // timer (see combat.js): stay unseen for escapeSeconds[wanted] and
-  // ALL stars clear at once; get seen again and the timer resets.
-  wanted: {
+const CONFIG = {
+  title: "Neon Vice",
+  city: "Vice Harbor",
+  heroName: "Vera Cruz",
+  world: { width: 1200, depth: 900, plazaRadius: 26 },
+  spawn: Object.assign({ x: 0, z: 0 }, { heading: 0 }),
+  player: { walkSpeed: 6, runSpeed: 11, turnSpeed: 2.6, radius: 0.6 },
+  camera: { distance: 9, height: 4.5, lookHeight: 1.6, fov: 60, near: 0.1, far: 2500 },
+  colors: Object.fromEntries(colorRows),
+  money: { start: 25 * 10, debt: 50 * 1000 },
+  weapons: keyed(weaponRows, (r) => ({
+    name: r[1], damage: r[2], magSize: r[3], reserveMax: r[4], range: r[5],
+    fireInterval: r[6], reloadTime: r[7], price: r[8], ammoPrice: r[9],
+  })),
+  places: keyed(placeRows, (r) => ({ x: r[1], z: r[2], name: r[3] })),
+  water: { z0: -450, z1: 450, x0: 470, x1: 600 },
+  weather: { startHour: 7, dayLengthSec: 600, rainChance: 0.25 },
+  wanted: { // police tiers, escape timer per star
     max: 5,
-    escapeSeconds: { 1: 5, 2: 6, 3: 12, 4: 16, 5: 20 }, // v6.3 tune: ★2 8 -> 6 (retest: 1/3 lolos jalan kaki)
-    sightRange: 70,
-    tiers: [
-      { foot: 0, cars: 0 },
-      { foot: 2, cars: 0 },
-      { foot: 2, cars: 1 },
-      { foot: 3, cars: 2 },
-      { foot: 3, cars: 3 },
-      { foot: 4, cars: 4 },
-    ],
+    sightRange: 7 * 10,
+    escapeSeconds: Object.fromEntries([[1, 5], [2, 6], [3, 12], [4, 16], [5, 20]]),
+    tiers: tierRows.map(([foot, cars]) => ({ foot, cars })),
   },
 };
+
+export { CONFIG };

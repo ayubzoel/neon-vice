@@ -1,245 +1,271 @@
-// Neon Vice — Builder C: weather + game clock.
-// The game clock runs on fixed-timestep game time (main.js advances it by
-// 1/60 s per substep). One full day = CONFIG.weather.dayLengthSec of game
-// time. Day/night drives sky colour, fog, sun/moon light and street lamps
-// (emissive materials registered by the world). Rain is a Points particle
-// system that falls around the player; while it rains the ground darkens.
-// Default: morning (07:00) — the first mission starts in daylight so the
-// four phases are visible within the first minutes of play.
+// Neon Vice — sky, clock and rain.
 //
-// v4: full four-phase cycle — Pagi / Siang / Sore / Malam — as keyframed
-// stops over the 24 h clock. Every stop carries sky, fog, hemisphere and
-// sun intensity + colour, ambient lift, lamp glow, window glow, star and
-// moon opacity; apply() lerps between the bracketing stops, so the light
-// changes continuously as the clock runs instead of snapping day/night.
-// The sun tracks east (low, morning) -> overhead (noon) -> west (low,
-// evening); outside 06:00-18:00 the same directional light sits at the
-// moon position and reads as moonlight. Rain can start in any phase.
+// Game time advances in fixed 1/60 s substeps from main.js. A full day
+// costs CONFIG.weather.dayLengthSec of game time. The time of day steers
+// sky colour, fog, sun and moon light and the street lamps, whose glow
+// materials the world registers here. Rain is a Points cloud that falls
+// around the player; while it rains the ground darkens. The game opens
+// at 07:00 in the morning, so the first mission plays out in daylight
+// and all four phases appear within the first minutes.
+//
+// The day is four phases — Pagi / Siang / Sore / Malam — keyed as stops
+// across the 24 h clock. Each stop holds sky, fog, hemisphere and sun
+// strength and colour, ambient lift, lamp and window glow, star and moon
+// opacity; apply() blends between the two stops around the current hour,
+// so light drifts smoothly instead of jumping between day and night.
+// The sun climbs from low in the east at 06:00 to overhead at noon and
+// down low in the west by 18:00; outside that window the same light is
+// parked at the moon's place and reads as moonlight. Showers may begin
+// in any phase.
 
-import { CONFIG } from './config.js';
+import { CONFIG as CFG } from "./config.js";
 
-// One stop per key hour. lamp/win are 0..1 glow factors (1 = fully lit
-// night city); stars/moon are opacities. Fog near/far derive from lamp
-// (dayness = 1 - lamp) in apply().
-const STOPS = [
-  // h,    sky,       fog,       hemi, sun,  sun colour, amb,  lamp, win,  stars, moon
-  { h: 0,  sky: 0x0b1026, fog: 0x0d1226, hemi: 0.25, sun: 0.35, sunC: 0x8fa8ff, amb: 0.55, lamp: 1.00, win: 1.00, stars: 0.85, moon: 1.00 },
-  { h: 5,  sky: 0x0b1026, fog: 0x0d1226, hemi: 0.25, sun: 0.35, sunC: 0x8fa8ff, amb: 0.55, lamp: 1.00, win: 1.00, stars: 0.85, moon: 1.00 },
-  { h: 6,  sky: 0x8a6f8e, fog: 0x7d6f88, hemi: 0.40, sun: 0.55, sunC: 0xffb37a, amb: 0.50, lamp: 0.70, win: 0.70, stars: 0.30, moon: 0.70 },
-  { h: 7,  sky: 0xa9c9e8, fog: 0xa9c2d6, hemi: 0.75, sun: 0.95, sunC: 0xffe0ae, amb: 0.45, lamp: 0.25, win: 0.15, stars: 0.00, moon: 0.15 },
-  { h: 9,  sky: 0x8ec9ee, fog: 0x9fc6e2, hemi: 0.90, sun: 1.15, sunC: 0xfff2d9, amb: 0.40, lamp: 0.05, win: 0.05, stars: 0.00, moon: 0.00 },
-  { h: 12, sky: 0x6fb3ec, fog: 0xa8d0ea, hemi: 1.00, sun: 1.30, sunC: 0xffffff, amb: 0.35, lamp: 0.00, win: 0.03, stars: 0.00, moon: 0.00 },
-  { h: 15, sky: 0x7fb8e8, fog: 0x9cc0dc, hemi: 0.95, sun: 1.20, sunC: 0xfff0c8, amb: 0.38, lamp: 0.00, win: 0.04, stars: 0.00, moon: 0.00 },
-  { h: 17, sky: 0xe8a35c, fog: 0xd89a6a, hemi: 0.70, sun: 0.90, sunC: 0xff9a3d, amb: 0.45, lamp: 0.35, win: 0.35, stars: 0.00, moon: 0.10 },
-  { h: 18, sky: 0x7a4a6a, fog: 0x6a4a5e, hemi: 0.45, sun: 0.40, sunC: 0xff7a4d, amb: 0.50, lamp: 0.80, win: 0.80, stars: 0.25, moon: 0.50 },
-  { h: 19, sky: 0x0b1026, fog: 0x0d1226, hemi: 0.25, sun: 0.35, sunC: 0x8fa8ff, amb: 0.55, lamp: 1.00, win: 1.00, stars: 0.85, moon: 1.00 },
-  { h: 24, sky: 0x0b1026, fog: 0x0d1226, hemi: 0.25, sun: 0.35, sunC: 0x8fa8ff, amb: 0.55, lamp: 1.00, win: 1.00, stars: 0.85, moon: 1.00 },
+// One stop per key hour: [h, sky, fog, hemi, sun, sunC, amb, lamp, win, stars, moon].
+// lamp/win run 0..1 (1 = fully lit night city); stars/moon are opacities.
+// Fog distances are derived from lamp (dayness = 1 - lamp) inside apply().
+const STOP_ROWS = [
+  [0, 0x0B1026, 0x0D1226, 0.25, 0.35, 0x8FA8FF, 0.55, 1.0, 1.0, 0.85, 1.0],
+  [5, 0x0B1026, 0x0D1226, 0.25, 0.35, 0x8FA8FF, 0.55, 1.0, 1.0, 0.85, 1.0],
+  [6, 0x8A6F8E, 0x7D6F88, 0.4, 0.55, 0xFFB37A, 0.5, 0.7, 0.7, 0.3, 0.7],
+  [7, 0xA9C9E8, 0xA9C2D6, 0.75, 0.95, 0xFFE0AE, 0.45, 0.25, 0.15, 0.0, 0.15],
+  [9, 0x8EC9EE, 0x9FC6E2, 0.9, 1.15, 0xFFF2D9, 0.4, 0.05, 0.05, 0.0, 0.0],
+  [12, 0x6FB3EC, 0xA8D0EA, 1.0, 1.3, 0xFFFFFF, 0.35, 0.0, 0.03, 0.0, 0.0],
+  [15, 0x7FB8E8, 0x9CC0DC, 0.95, 1.2, 0xFFF0C8, 0.38, 0.0, 0.04, 0.0, 0.0],
+  [17, 0xE8A35C, 0xD89A6A, 0.7, 0.9, 0xFF9A3D, 0.45, 0.35, 0.35, 0.0, 0.1],
+  [18, 0x7A4A6A, 0x6A4A5E, 0.45, 0.4, 0xFF7A4D, 0.5, 0.8, 0.8, 0.25, 0.5],
+  [19, 0x0B1026, 0x0D1226, 0.25, 0.35, 0x8FA8FF, 0.55, 1.0, 1.0, 0.85, 1.0],
+  [24, 0x0B1026, 0x0D1226, 0.25, 0.35, 0x8FA8FF, 0.55, 1.0, 1.0, 0.85, 1.0],
 ];
-for (const s of STOPS) {
-  s.skyC = new THREE.Color(s.sky);
-  s.fogC = new THREE.Color(s.fog);
-  s.sunCC = new THREE.Color(s.sunC);
-}
+const STOPS = STOP_ROWS.map(([h, sky, fog, hemi, sun, sunC, amb, lamp, win, stars, moon]) => ({
+  h, sky, fog, hemi, sun, sunC, amb, lamp, win, stars, moon,
+  skyC: new THREE.Color(sky),
+  fogC: new THREE.Color(fog),
+  sunCC: new THREE.Color(sunC),
+}));
 
-const LAMP_DAY = new THREE.Color(0x6b6257); // unlit lamp head, daytime
-const LAMP_NIGHT = new THREE.Color(0xffd9a0); // lit lamp head, night
+const LAMP_DAY = new THREE.Color(0x6B6257); // lamp head by day, unlit grey
+const LAMP_NIGHT = new THREE.Color(0xFFD9A0); // lamp head by night, warm lit
 
-export function createWeather(scene, opts = {}) {
-  let hour = CONFIG.weather.startHour; // 0..24
-  let rain = 0; // 0 none, 1 full
-  let rainTarget = 0;
-  let nextRainCheck = 30; // seconds of game time
-  let lamps = [];
-  // World-registered phase-driven materials (see registerWorld): building
-  // window materials [{mat, base}], the lamp-head material, moon/glow/
-  // stars meshes. All optional — the sky/light cycle works without them.
-  let windowMats = [];
-  let lampHeadMat = null;
-  let skyMoon = null;
-  let skyGlow = null;
-  let skyStars = null;
+const PHASES = [[5, "Pagi"], [10, "Siang"], [16, "Sore"], [19, "Malam"]];
+const NUM_KEYS = ["hemi", "sun", "amb", "lamp", "win", "stars", "moon"];
 
-  const hemi = scene.children.find((c) => c.isHemisphereLight) || null;
-  const sun = scene.children.find((c) => c.isDirectionalLight) || null;
-  const ambient = scene.children.find((c) => c.isAmbientLight) || null;
+function createWeather(scene, opts = {}) {
+  let hour = CFG.weather.startHour, rain = 0, rainTarget = 0;
+  let nextRainCheck = 30; // game-time seconds until the next shower roll
+  let lamps = [], windowMats = [];
+  // Phase-driven materials the world hands over (see registerWorld):
+  // window entries [{mat, base}], the lamp-head material, moon/glow/star
+  // meshes. Everything is optional — the sky and light cycle run fine
+  // without any of them registered.
+  let lampHeadMat = null, skyMoon = null, skyGlow = null, skyStars = null;
 
-  // Rain particle count follows graphics quality: on low quality only ~300
-  // of the 900 drops are simulated and drawn, which saves a per-frame buffer
-  // rewrite where FPS is scarcest. Quality comes from the caller when given;
-  // otherwise the same software-renderer probe main.js uses for its default
-  // quality decides (SwiftShader/llvmpipe => 'low').
-  function isSoftwareGL() {
+  const pick = (test) => scene.children.find(test) || null;
+  const hemi = pick((c) => c.isHemisphereLight);
+  const sun = pick((c) => c.isDirectionalLight);
+  const ambient = pick((c) => c.isAmbientLight);
+
+  // Drop counts follow graphics quality: low quality simulates and draws
+  // only ~300 of the 900 drops, sparing a per-frame buffer rewrite where
+  // FPS is scarcest. The caller may pass quality in; otherwise the same
+  // software-renderer probe main.js uses for its default decides it
+  // (SwiftShader/llvmpipe => 'low').
+  function softwareRenderer() {
+    let soft = false;
     try {
-      const probe = document.createElement('canvas').getContext('webgl');
-      const ext = probe && probe.getExtension('WEBGL_debug_renderer_info');
-      const name = ext ? probe.getParameter(ext.UNMASKED_RENDERER_WEBGL) : '';
-      if (probe) probe.getExtension('WEBGL_lose_context')?.loseContext();
-      return /swiftshader|llvmpipe|software|basic render/i.test(String(name));
-    } catch { return false; }
-  }
-  const quality = opts.quality ?? (isSoftwareGL() ? 'low' : 'high');
-  // Rain particles: 900 points in a 60x30x60 box around the player
-  // (300 on low quality).
-  const RAIN_COUNT = quality === 'low' ? 300 : 900;
-  const rainGeo = new THREE.BufferGeometry();
-  const rainPos = new Float32Array(RAIN_COUNT * 3);
-  for (let i = 0; i < RAIN_COUNT; i += 1) {
-    rainPos[i * 3] = (Math.random() - 0.5) * 60;
-    rainPos[i * 3 + 1] = Math.random() * 30;
-    rainPos[i * 3 + 2] = (Math.random() - 0.5) * 60;
-  }
-  rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
-  const rainMat = new THREE.PointsMaterial({
-    color: 0x9db8d6, size: 0.14, transparent: true, opacity: 0.55, depthWrite: false,
-  });
-  const rainPoints = new THREE.Points(rainGeo, rainMat);
-  rainPoints.visible = false;
-  rainPoints.frustumCulled = false;
-  scene.add(rainPoints);
-
-  function daylight(h) {
-    // 0 at night, 1 at noon; smooth via cosine over 06:00-18:00.
-    const t = (h - 6) / 12; // 0 at 06:00, 1 at 18:00
-    if (t <= 0 || t >= 1) return 0;
-    return Math.sin(t * Math.PI);
-  }
-
-  // Interpolated phase values at hour h: lerp between bracketing stops.
-  const _sky = new THREE.Color();
-  const _fog = new THREE.Color();
-  const _sunC = new THREE.Color();
-  function phaseAt(h) {
-    let a = STOPS[0];
-    let b = STOPS[STOPS.length - 1];
-    for (let i = 0; i < STOPS.length - 1; i += 1) {
-      if (h >= STOPS[i].h && h <= STOPS[i + 1].h) { a = STOPS[i]; b = STOPS[i + 1]; break; }
+      const probe = document.createElement("canvas").getContext("webgl");
+      const ext = probe && probe.getExtension("WEBGL_debug_renderer_info");
+      const name = ext ? probe.getParameter(ext.UNMASKED_RENDERER_WEBGL) : "";
+      if (probe) probe.getExtension("WEBGL_lose_context")?.loseContext();
+      soft = String(name).match(/swiftshader|llvmpipe|software|basic render/i) !== null;
+    } catch (ignored) {
+      soft = false;
     }
-    const span = Math.max(0.0001, b.h - a.h);
-    const t = Math.max(0, Math.min(1, (h - a.h) / span));
-    const lerp = (x, y) => x + (y - x) * t;
+    return soft;
+  }
+  const quality = opts.quality ?? (softwareRenderer() ? "low" : "high");
+  // 900 rain points in a 60x30x60 box around the player (300 on low).
+  const RAIN_COUNT = quality === "low" ? 300 : 900;
+  const rainGeo = new THREE.BufferGeometry(); // positions rewritten per frame
+  const rainPos = new Float32Array(3 * RAIN_COUNT);
+  for (let i = RAIN_COUNT - 1; i >= 0; i--) {
+    rainPos[3 * i] = Math.random() * 60 - 30;
+    rainPos[3 * i + 1] = Math.random() * 30;
+    rainPos[3 * i + 2] = Math.random() * 60 - 30;
+  }
+  rainGeo.setAttribute("position", new THREE.BufferAttribute(rainPos, 3));
+  const rainMat = new THREE.PointsMaterial({ color: 0x9DB8D6, size: 0.14, transparent: true, opacity: 0.55, depthWrite: false });
+  const rainPoints = new THREE.Points(rainGeo, rainMat); // one draw call
+  Object.assign(rainPoints, { visible: false, frustumCulled: false });
+  scene.add(rainPoints); // the cloud follows the player in apply()
+
+  function dayFactor(h) {
+    // Darkness 0, noon 1, eased with a cosine across 06:00-18:00.
+    const t = (h - 6) / 12; // maps 06:00 -> 0, 18:00 -> 1
+    return t <= 0 || t >= 1 ? 0 : Math.sin(t * Math.PI);
+  }
+
+  // Blended phase values at hour h, between the two surrounding stops.
+  const _sky = new THREE.Color(), _fog = new THREE.Color(), _sunC = new THREE.Color();
+  function blendAt(h) {
+    let idx = 0;
+    while (idx < STOPS.length - 2 && h > STOPS[idx + 1].h) idx++;
+    const a = STOPS[idx];
+    const b = STOPS[idx + 1];
+    const span = b.h - a.h || 0.0001;
+    const raw = (h - a.h) / span;
+    const clamped = raw < 0 ? 0 : raw > 1 ? 1 : raw;
+    const lerp = (x, y) => x + (y - x) * clamped;
+    const nums = {};
+    for (const key of NUM_KEYS) nums[key] = lerp(a[key], b[key]);
     return {
-      sky: _sky.copy(a.skyC).lerp(b.skyC, t),
-      fog: _fog.copy(a.fogC).lerp(b.fogC, t),
-      hemi: lerp(a.hemi, b.hemi),
-      sun: lerp(a.sun, b.sun),
-      sunC: _sunC.copy(a.sunCC).lerp(b.sunCC, t),
-      amb: lerp(a.amb, b.amb),
-      lamp: lerp(a.lamp, b.lamp),
-      win: lerp(a.win, b.win),
-      stars: lerp(a.stars, b.stars),
-      moon: lerp(a.moon, b.moon),
+      sky: _sky.copy(a.skyC).lerp(b.skyC, clamped),
+      fog: _fog.copy(a.fogC).lerp(b.fogC, clamped),
+      sunC: _sunC.copy(a.sunCC).lerp(b.sunCC, clamped),
+      ...nums,
     };
   }
 
-  function apply(px, pz) {
-    const p = phaseAt(hour);
-    scene.background = p.sky;
-    if (scene.fog) {
-      scene.fog.color.copy(p.fog);
-      const dayness = 1 - p.lamp;
-      scene.fog.near = 200 + dayness * 300;
-      scene.fog.far = 1100 + dayness * 700;
-    }
-    if (hemi) hemi.intensity = p.hemi;
-    if (ambient) ambient.intensity = p.amb;
-    if (sun) {
-      sun.intensity = p.sun;
-      sun.color.copy(p.sunC);
-      if (hour >= 6 && hour <= 18) {
-        // Sun path: low in the east at 06:00, overhead at noon, low in
-        // the west at 18:00.
-        const ang = ((hour - 6) / 12) * Math.PI;
-        sun.position.set(Math.cos(ang) * 260, Math.max(25, Math.sin(ang) * 280), 80);
-      } else {
-        // Moon position: the same light reads as moonlight at night.
-        sun.position.set(-160, 300, -140);
-      }
-    }
-    // Street lamps: emissive-registered lamps (old API) + the instanced
-    // lamp-head material (bright warm at night, dim grey by day).
-    for (const lamp of lamps) {
-      if (lamp.material && lamp.material.emissive) {
-        lamp.material.emissiveIntensity = 0.05 + p.lamp * 1.15;
-      }
-    }
-    if (lampHeadMat) lampHeadMat.color.copy(LAMP_DAY).lerp(LAMP_NIGHT, p.lamp);
-    // Building windows glow at night, nearly dark by day (facades are lit
-    // by the sun instead).
-    for (const w of windowMats) w.mat.emissiveIntensity = w.base * (0.03 + 0.97 * p.win);
-    // Moon + stars fade out by day; the glow tracks the moon.
-    if (skyMoon && skyMoon.material) skyMoon.material.opacity = p.moon;
-    if (skyGlow && skyGlow.material) skyGlow.material.opacity = 0.14 * p.moon;
-    if (skyStars && skyStars.material) skyStars.material.opacity = 0.85 * p.stars;
-    rainPoints.visible = rain > 0.02;
-    rainMat.opacity = 0.55 * rain;
-    rainPoints.position.set(px, 0, pz);
+  function fade(mesh, value) {
+    if (mesh && mesh.material) mesh.material.opacity = value;
   }
 
-  function phaseName(h = hour) {
-    if (h >= 5 && h < 10) return 'Pagi';
-    if (h >= 10 && h < 16) return 'Siang';
-    if (h >= 16 && h < 19) return 'Sore';
-    return 'Malam';
+  function apply(px, pz) { // push the blended phase into the scene
+    const p = blendAt(hour);
+    scene.background = p.sky; // sky follows the phase
+    if (scene.fog) { // haze colour + range
+      scene.fog.color.copy(p.fog); // haze tint
+      scene.fog.near = 200 + (1 - p.lamp) * 300;
+      scene.fog.far = 1100 + (1 - p.lamp) * 700;
+    }
+    if (hemi) {
+      hemi.intensity = p.hemi;
+    }
+    if (ambient) {
+      ambient.intensity = p.amb;
+    }
+    if (sun) { // directional sun/moon light
+      sun.intensity = p.sun; // phase strength
+      sun.color.copy(p.sunC); // phase tint
+      if (hour >= 6 && hour <= 18) { // daytime arc
+        // Sunrise low east, noon overhead, sunset low west.
+        const ang = (hour - 6) * Math.PI / 12;
+        const sx = Math.cos(ang) * 260;
+        const sy = Math.max(25, Math.sin(ang) * 280);
+        sun.position.set(sx, sy, 80);
+      } else {
+        // Moon spot: the same light reads as moonlight after dark.
+        sun.position.set(-160, 300, -140); // parked moon position
+      }
+    }
+    // Street lamps: emissive-registered lamps (old API) plus the instanced
+    // lamp-head material — bright warm after dark, dim grey by day.
+    lamps.forEach((lamp) => {
+      if (lamp.material?.emissive) {
+        const mat = lamp.material;
+        mat.emissiveIntensity = 0.05 + p.lamp * 1.15;
+      }
+    });
+    if (lampHeadMat) {
+      lampHeadMat.color.copy(LAMP_DAY).lerp(LAMP_NIGHT, p.lamp);
+    }
+    // Windows glow at night and stay near-dark by day, since daylight
+    // does the lighting work for the facades.
+    windowMats.forEach((entry) => {
+      entry.mat.emissiveIntensity = entry.base * (0.03 + 0.97 * p.win);
+    });
+    // Moon and stars wash out in daylight; the glow hugs the moon.
+    fade(skyMoon, p.moon);
+    fade(skyGlow, 0.14 * p.moon);
+    fade(skyStars, 0.85 * p.stars);
+    Object.assign(rainPoints, { visible: rain > 0.02 });
+    rainMat.opacity = rain * 0.55;
+    rainPoints.position.set(px, 0, pz); // cloud centred on the player
+  }
+
+  function phaseName(h = hour) { // Pagi / Siang / Sore / Malam
+    let name = "Malam";
+    for (const [bound, label] of PHASES) {
+      if (h >= bound) name = label;
+    }
+    return name;
+  }
+
+  function pad2(n) {
+    return n < 10 ? "0" + n : "" + n;
   }
 
   return {
-    get hour() { return hour; },
-    get raining() { return rain > 0.3; },
-    get rainAmount() { return rain; },
-    get quality() { return quality; },
-    get rainCount() { return RAIN_COUNT; },
-    clockText() {
-      const h = Math.floor(hour) % 24;
-      const m = Math.floor((hour % 1) * 60);
-      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')} · ${phaseName()}`;
+    get hour() { return hour; }, get raining() { return rain > 0.3; },
+    get rainAmount() { return rain; }, get quality() { return quality; },
+    get rainCount() { return RAIN_COUNT; }, // drops simulated per frame
+    clockText() { // "07:00 · Pagi"
+      const h = Math.floor(hour % 24);
+      const m = Math.floor(hour * 60) % 60;
+      return `${pad2(h)}:${pad2(m)} · ${phaseName()}`;
     },
-    phaseName() { return phaseName(); },
-    isNight() { return daylight(hour) < 0.35; },
-    registerLamps(meshes) { lamps = meshes || []; },
-    // World hookup for the phase-driven materials: windowMats is
-    // [{mat, base}], lampHeadMat the instanced lamp-head material, and
-    // skyMeshes {moon, glow, stars}. Moon/glow materials are made
-    // transparent here so their opacity can fade with the phase.
-    registerWorld(world) {
-      if (!world) return;
-      windowMats = world.windowMats || [];
-      lampHeadMat = world.lampHeadMat || null;
-      const sm = world.skyMeshes || {};
-      skyMoon = sm.moon || null;
-      skyGlow = sm.glow || null;
-      skyStars = sm.stars || null;
-      for (const m of [skyMoon, skyGlow]) {
-        if (m && m.material) m.material.transparent = true;
-      }
-      apply(0, 0);
+    phaseName() {
+      return phaseName();
     },
-    setRain(on) { rainTarget = on ? 1 : 0; },
-    setHour(h) { hour = ((h % 24) + 24) % 24; apply(0, 0); },
-    update(dt, px, pz) {
-      hour = (hour + (dt / CONFIG.weather.dayLengthSec) * 24) % 24;
-      nextRainCheck -= dt;
-      if (nextRainCheck <= 0) {
-        nextRainCheck = 45 + Math.random() * 60;
-        // Light showers in any phase; rain is random otherwise.
-        if (Math.random() < CONFIG.weather.rainChance) rainTarget = 1;
-        else if (rainTarget > 0 && Math.random() < 0.6) rainTarget = 0;
+    isNight() {
+      return dayFactor(hour) < 0.35;
+    },
+    registerLamps(meshes) {
+      lamps = meshes || [];
+    },
+    // World hookup: windowMats is [{mat, base}], lampHeadMat the
+    // instanced lamp-head material, skyMeshes {moon, glow, stars}.
+    // Moon/glow materials turn transparent here so their opacity can
+    // fade along with the phase.
+    registerWorld(world) { // world hands over its glow materials
+      if (!world) {
+        return;
       }
-      // Ramp rate 1.0/s of game time: rain is visibly falling ~0.35 s
-      // after the toggle. (Was 0.5: at ~2 FPS under SwiftShader the
-      // game-time ratio is ~0.27, so the old ramp needed ~2.6 s real to
-      // cross the raining threshold and the weather playtest's 2 s
-      // window flaked. The fade is still gradual, just no longer
-      // borderline at low FPS.)
-      rain += (rainTarget - rain) * Math.min(1, dt * 1.0);
-      if (rain > 0.02) {
-        const pos = rainGeo.attributes.position.array;
-        for (let i = 0; i < RAIN_COUNT; i += 1) {
-          pos[i * 3 + 1] -= 28 * dt;
-          if (pos[i * 3 + 1] < 0) pos[i * 3 + 1] = 30;
+      const { windowMats: wm = [], lampHeadMat: lhm = null, skyMeshes: sm = {} } = world;
+      windowMats = wm;
+      lampHeadMat = lhm;
+      skyMoon = sm.moon ?? null;
+      skyGlow = sm.glow ?? null;
+      skyStars = sm.stars ?? null;
+      for (const m of [skyMoon, skyGlow]) { // make them fadeable
+        if (m?.material) m.material.transparent = true;
+      }
+      apply(0, 0); // refresh now
+    },
+    setRain(on) {
+      rainTarget = on ? 1 : 0;
+    },
+    setHour(h) {
+      hour = ((h % 24) + 24) % 24;
+      apply(0, 0); // refresh now
+    },
+    update(dt, px, pz) { // advance clock, rain, drops
+      hour = (hour + (dt * 24) / CFG.weather.dayLengthSec) % 24;
+      nextRainCheck = nextRainCheck - dt;
+      if (nextRainCheck <= 0) { // time to roll for a shower
+        nextRainCheck = Math.random() * 60 + 45;
+        // Showers are light and may begin in any phase; otherwise random.
+        if (Math.random() < CFG.weather.rainChance) rainTarget = 1;
+        else if (rainTarget > 0 && Math.random() < 0.6) {
+          rainTarget = 0;
         }
-        rainGeo.attributes.position.needsUpdate = true;
       }
-      apply(px, pz);
+      // Fade rate 1.0/s of game time: drops are visibly falling ~0.35 s
+      // after the toggle, even at ~2 FPS under SwiftShader, where the
+      // old 0.5 rate needed ~2.6 s real to cross the raining threshold.
+      rain = rain + (rainTarget - rain) * Math.min(1, dt);
+      if (rain > 0.02) { // drops only fall while it rains
+        const pos = rainGeo.attributes.position.array; // live drop heights
+        let i = 0; // drop index
+        while (i < RAIN_COUNT) {
+          pos[3 * i + 1] = pos[3 * i + 1] - 28 * dt;
+          if (pos[3 * i + 1] < 0) pos[3 * i + 1] = 30;
+          i++;
+        }
+        rainGeo.attributes.position.needsUpdate = true; // push to GPU
+      }
+      apply(px, pz); // repaint the sky for the new hour
     },
   };
 }
+
+export { createWeather };
