@@ -1302,15 +1302,18 @@ export function createWorld(scene) {
   }
   // Median garden lamps (v6.4): SHORT posts (sy 0.3 -> 1.8 m pole, head
   // at 1.83 m) so they stay under the ramp: clearance at |z| = 38 is
-  // 2.14 m, at |z| = 14 is 5.02 m. One just past the foot gap (east
-  // side, z = ±38, like the v6.3 gap lamps) and one at the deck end
-  // (west side, z = ±14).
+  // 2.14 m, at |z| = 22 is 4.06 m. Both on the EAST side now (v6.6-fix):
+  // the west side is the tight-left turn arc — a car swinging through
+  // the mouth passes exactly along x = f.x - 1.6, so the west lamp
+  // moved east to z = ±22 (4 m clear of the bench at ±26 and of the
+  // foot gap at ±35). One just past the foot gap (east side,
+  // z = ±38, like the v6.3 gap lamps) and one at z = ±22.
   for (const g of MEDIAN_GARDENS) {
     const s = g.gapC > 0 ? 1 : -1;
     lampSpots.push({ x: g.fx + 1.6, z: s * 38, sy: 0.3 });
     medianObjects.push({ kind: 'lamp', x: g.fx + 1.6, z: s * 38, top: 1.83 });
-    lampSpots.push({ x: g.fx - 1.6, z: s * 14, sy: 0.3 });
-    medianObjects.push({ kind: 'lamp', x: g.fx - 1.6, z: s * 14, top: 1.83 });
+    lampSpots.push({ x: g.fx + 1.6, z: s * 22, sy: 0.3 });
+    medianObjects.push({ kind: 'lamp', x: g.fx + 1.6, z: s * 22, top: 1.83 });
   }
   // Boardwalk lamps (v6.6 item 5): full-height street lamps along the
   // west edge of the boardwalk (x 413, 1 m from the edge, so the 8 m
@@ -1474,14 +1477,16 @@ export function createWorld(scene) {
   // Median garden shrubs (v6.4): low spheres only — no oaks (too tall
   // under the ramp, see MEDIAN_GARDENS note). Squashed crowns (squashY
   // 0.7, see the makeCrowns call below): top = y + r * 0.7, i.e. 0.92 m
-  // at |z| = 24 (clearance 3.82 m) and 0.80 m at |z| = 46 (clearance
-  // 1.18 m). Two per segment, off the path slab. Visual only, like
+  // at |z| = 42 (clearance 1.66 m) and 0.80 m at |z| = 46 (clearance
+  // 1.18 m). Both on the EAST side now (v6.6-fix): the west side is the
+  // tight-left turn arc, so the west shrub moved east to z = ±42.
+  // Two per segment, off the path slab. Visual only, like
   // benches — the hedge is the barrier, not the planting.
   const shrubCrowns = [];
   for (const g of MEDIAN_GARDENS) {
     const s = g.gapC > 0 ? 1 : -1;
-    shrubCrowns.push({ x: g.fx - 1.6, z: s * 24, y: 0.5, r: 0.6 });
-    medianObjects.push({ kind: 'shrub', x: g.fx - 1.6, z: s * 24, top: 0.92 });
+    shrubCrowns.push({ x: g.fx + 1.6, z: s * 42, y: 0.5, r: 0.6 });
+    medianObjects.push({ kind: 'shrub', x: g.fx + 1.6, z: s * 42, top: 0.92 });
     shrubCrowns.push({ x: g.fx + 1.6, z: s * 46, y: 0.45, r: 0.5 });
     medianObjects.push({ kind: 'shrub', x: g.fx + 1.6, z: s * 46, top: 0.8 });
   }
@@ -1565,11 +1570,14 @@ export function createWorld(scene) {
   // Median benches (v6.4): long axis along z (rotY ±PI/2) so each sits
   // beside the 2 m path slab, clear of it and of the hedges. Top
   // 0.68 m (bench box 0.45 high centred at 0.45): clearance at |z| =
-  // 30 is 3.10 m, at |z| = 18 is 4.54 m.
+  // 30 is 3.10 m, at |z| = 26 is 3.58 m. Both on the EAST side now
+  // (v6.6-fix): the west side is the tight-left turn arc, so the west
+  // bench moved east to z = ±26 (4 m clear of the lamp at ±22 and of
+  // the bench at ±30).
   for (const g of MEDIAN_GARDENS) {
     const s = g.gapC > 0 ? 1 : -1;
-    benches.push({ x: g.fx - 1.6, z: s * 18, rotY: Math.PI / 2 });
-    medianObjects.push({ kind: 'bench', x: g.fx - 1.6, z: s * 18, top: 0.68 });
+    benches.push({ x: g.fx + 1.6, z: s * 26, rotY: -Math.PI / 2 });
+    medianObjects.push({ kind: 'bench', x: g.fx + 1.6, z: s * 26, top: 0.68 });
     benches.push({ x: g.fx + 1.6, z: s * 30, rotY: -Math.PI / 2 });
     medianObjects.push({ kind: 'bench', x: g.fx + 1.6, z: s * 30, top: 0.68 });
   }
@@ -1696,27 +1704,50 @@ export function createWorld(scene) {
   // pattern: 4.4 m gap + 0.6 m bollard -> 1.9 m sub-gaps). Colliders
   // are HEIGHT-GATED (maxY 1.5, see collides()): they block ground
   // callers but never a car on the deck/ramp above.
-  // INTERSECTION-END INSET (v6.4 fix, found by the builder self-test):
-  // the hedge starts 4 m back from the intersection mouth (z = ±14,
-  // not ±10.5). A sedan turning right out of the turn lane wedges its
-  // centre circle (r = 1.0) on the hedge's end corner at (then
+  // INTERSECTION-END INSET (v6.4 fix, found by the builder self-test;
+  // v6.6-fix: 4 m -> 20 m). The 4 m inset (hedge from z = ±14) fixed
+  // the RIGHT turn: a sedan turning right out of the turn lane wedged
+  // its centre circle (r = 1.0) on the hedge's end corner at (then
   // f.x±2.95, ±10.5): the turn apex is (f.x±4.2, ±10.2), the nose cannot swing
   // east past the corner and the car cannot move at all (speed pinned
   // at -0.05, heading frozen — reproduced 2x in the self-test). With
   // the corner at ±14 the apex clears it by 2.8 m (centre) / 1.5 m
-  // (tail). The 4 m of hedge-less strip at the mouth is part of the
-  // already-open intersection end, not a new entrance: the strip ends
-  // were open by design (ramp-mount corridor).
+  // (tail). But the TIGHT LEFT turn was never re-checked against it:
+  // its nose arc swings much further south — reproduced 4/4 in the
+  // v6.6-fix probe (slow + fast, both flyovers): the car pins at
+  // (58.7,-13.8) / (298.4,-24.0) with the nose circle overlapping the
+  // hedge end corner by millimetres (heading frozen, speed -0.05,
+  // reversing is the only escape). The nose circle's worst reach is
+  // |z| ≈ 26.7, so the corner first moved to |z| = 30 — which fixed
+  // the FAST approach but not the SLOW one: at low speed the car hugs
+  // the hedge side (centre x ≈ f.x - 2.8) and its nose stays within
+  // millimetres of the corner until |z| ≈ 36.8, when the car is far
+  // enough west to clear it — retest pinned it at (57.2,-27.3) /
+  // (297.3,-27.3) against the |z| = 30 corner. So the WEST side (the
+  // turn arc) now insets 30 m (corner |z| = 40, ~3 m clear of the
+  // slow nose arc); the EAST side stays at 20 m because its foot gap
+  // at |z| = 35 must stay hedged (a corner south of the gap would
+  // leave the gap standing in open air). The right-turn apex (±10.2)
+  // clears both by far more. The 20/30 m of hedge-less strip at the
+  // mouth is part of the already-open intersection end, not a new
+  // entrance: the strip ends were open by design (ramp-mount
+  // corridor). The planting (lamps/benches/shrubs) is visual-only and
+  // never collided — it moves to the east side with the hedge so the
+  // whole turn arc reads clear.
   {
     const GAP_W = 4.4;
     const BOL_W = 0.6;
     const hedgeGeos = [];
     const bollards = [];
     for (const g of MEDIAN_GARDENS) {
-      const hz0 = g.z0 + (g.z0 > 0 ? 4 : 0.5);
-      const hz1 = g.z1 - (g.z1 < 0 ? 4 : 0.5);
       for (const side of [-1, 1]) {
         const ex = g.fx + side * 2.825;
+        // West side (side -1) is the tight-left turn arc: inset 30 m.
+        // East side (side +1) carries the foot gap at |z| = 35, so it
+        // stays at 20 m — the gap must stay inside the hedged run.
+        const inset = side < 0 ? 30 : 20;
+        const hz0 = g.z0 + (g.z0 > 0 ? inset : 0.5);
+        const hz1 = g.z1 - (g.z1 < 0 ? inset : 0.5);
         const isGap = side > 0; // east side only (gapSide 'E')
         const runs = [];
         if (!isGap) {
