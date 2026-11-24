@@ -230,13 +230,20 @@ export function createWorld(scene) {
   // further east into the shifted gap. With the gap on the south edge
   // the road-facing edge is a CONTINUOUS hedge: the same manoeuvre now
   // stops on the hedge and reverses out. Pedestrians enter from the
-  // south: B via the 2.25 m corridor (garden hedge z=83.75, building
-  // wall z=86), A/C across open ground. D keeps its 'W' gap: the
+  // south: B via the corridor south of its hedge (garden hedge z=83.35,
+  // building wall z≈85.26 — v6.6-fix: the corridor MEASURED only 1.45 m
+  // wall-to-wall (hedge 83.75, building 85.26), leaving 0.25 m of free
+  // centre-line for a 1.2 m player, so the south exit was effectively
+  // blocked (probe walker stuck at z=84.65). B's south edge moved 0.4 m
+  // north (z1 84->83.6), widening it to ~1.91 m / 0.71 m free — a car
+  // still needs 2.0 m and stays out (a 1 m move would have let cars in:
+  // measured car-free centre range [83.8,84.25]), A/C across open
+  // ground. D keeps its 'W' gap: the
   // median garden blocks a car's approach to it (parent manoeuvre
   // 2/2 clear at fx=300), so it is not a trap.
   const FLYOVER_GARDENS = [
     { x0: 30, x1: 48, z0: 12, z1: 30, gapSide: 'S', gapC: 39 },
-    { x0: 72, x1: 84, z0: 72, z1: 84, gapSide: 'S', gapC: 78 },
+    { x0: 72, x1: 84, z0: 72, z1: 83.6, gapSide: 'S', gapC: 78 },
     { x0: 270, x1: 288, z0: -30, z1: -12, gapSide: 'S', gapC: 279 },
     { x0: 324, x1: 336, z0: 36, z1: 48, gapSide: 'W', gapC: 42 },
   ];
