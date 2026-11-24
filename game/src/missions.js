@@ -662,6 +662,22 @@ export function createMissions(scene, world, ctx) {
     }
   }
 
+  // v6.6-fix: when a side job ends while a main mission is active, the
+  // beacon belongs to the mission again — re-aim it at the live stage
+  // target (or hide it for evade stages, which have no location) instead
+  // of leaving it at the side job's last spot. Also restores the mission
+  // objective text (goto stages only set it on startStage, so the side
+  // job's text would otherwise linger; kill/hold/race/evade refresh it
+  // every frame anyway).
+  function retargetBeaconAfterSideJob() {
+    if (status !== 'active') { hideBeacon(); ctx.onObjective(''); return; }
+    const t = stageTarget();
+    if (t) placeBeacon(t.x, t.z);
+    else hideBeacon();
+    const stage = currentStage();
+    if (stage) ctx.onObjective(stage.text);
+  }
+
   // ---- Side jobs ----
   function startSideJob(kind) {
     if (sideJob) {
@@ -721,7 +737,7 @@ export function createMissions(scene, world, ctx) {
           ctx.audio.cash();
           ctx.onMessage(`Taxi done — +$${sideJob.pay}`);
           sideJob = null;
-          if (status !== 'active') { hideBeacon(); ctx.onObjective(''); }
+          retargetBeaconAfterSideJob();
         }
       }
     } else if (sideJob.kind === 'package') {
@@ -732,11 +748,11 @@ export function createMissions(scene, world, ctx) {
         ctx.audio.cash();
         ctx.onMessage(`Package delivered — +$${sideJob.pay}`);
         sideJob = null;
-        if (status !== 'active') { hideBeacon(); ctx.onObjective(''); }
+        retargetBeaconAfterSideJob();
       } else if (sideJob.timeLeft <= 0) {
         ctx.onMessage('Package job failed — too slow.');
         sideJob = null;
-        if (status !== 'active') { hideBeacon(); ctx.onObjective(''); }
+        retargetBeaconAfterSideJob();
       }
     } else if (sideJob.kind === 'race') {
       sideJob.timeLeft -= dt;
@@ -749,7 +765,7 @@ export function createMissions(scene, world, ctx) {
           ctx.audio.cash();
           ctx.onMessage(`Race won — +$${sideJob.pay}`);
           sideJob = null;
-          if (status !== 'active') { hideBeacon(); ctx.onObjective(''); }
+          retargetBeaconAfterSideJob();
           return;
         }
         placeBeacon(sideJob.checkpoints[sideJob.cpIndex].x, sideJob.checkpoints[sideJob.cpIndex].z);
@@ -758,7 +774,7 @@ export function createMissions(scene, world, ctx) {
       if (sideJob.timeLeft <= 0) {
         ctx.onMessage('Race failed — out of time.');
         sideJob = null;
-        if (status !== 'active') { hideBeacon(); ctx.onObjective(''); }
+        retargetBeaconAfterSideJob();
       }
     }
   }
