@@ -212,6 +212,12 @@ export function createUI(settings) {
     banner.classList.remove('hidden');
     $('bannerShow')?.classList.add('hidden');
     text.textContent = msg;
+    // v6.6-fix: mirror the last toast into #hudMsg (see index.html) so
+    // the message stays readable after the banner reverts to its hint —
+    // the ★1 escape toast ("You escaped!" / "Berhasil kabur!") was
+    // otherwise unreadable once it expired.
+    const hm = $('hudMsg');
+    if (hm) hm.textContent = msg;
     toastActive = true;
     if (msgTimer) clearTimeout(msgTimer);
     msgTimer = setTimeout(() => {

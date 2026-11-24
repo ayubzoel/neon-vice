@@ -163,6 +163,13 @@
 </div>
 <canvas id="minimap" class="hidden" width="150" height="150"></canvas>
 <div id="topBanner" class="hidden"><span id="bannerText"></span><button id="bannerClose" aria-label="Dismiss help">✕</button></div>
+<!-- v6.6-fix: #hudMsg mirrors the last toast message (hidden). The old
+     #hudMsg toast element was retired when toasts moved into #topBanner,
+     but the banner reverts to the hint text when a toast expires — so a
+     reader checking the last message after the fact (e.g. the ★1 escape
+     "You escaped!" / "Berhasil kabur!") found nothing. The mirror keeps
+     the last message. -->
+<span id="hudMsg" hidden></span>
 <button id="bannerShow" class="hidden" title="Show help (T)">?</button>
 <div id="crosshair"></div>
 <div id="lockMarker"><span id="lockLabel"></span></div>
