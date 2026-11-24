@@ -32,22 +32,18 @@ function paintRect(ctx, color, x, y, w, h) {
   ctx.fillRect(x, y, w, h);
 }
 
-function repeatWrap(tex, rx, ry) {
+// Recursion fix: an earlier version of finish()/finishClamp() called itself
+// and looped forever (RangeError: Maximum call stack size exceeded). The wrap
+// setup now lives directly inside each finisher, so no function in this file
+// calls itself — finish() applies the wrap and hands back the ready texture.
+function finish(tex, rx, ry) {
   Object.assign(tex, { wrapS: THREE.RepeatWrapping, wrapT: THREE.RepeatWrapping });
   tex.repeat.set(rx, ry);
-}
-
-function clampWrap(tex) {
-  Object.assign(tex, { wrapS: THREE.RepeatWrapping, wrapT: THREE.ClampToEdgeWrapping });
-}
-
-function finish(tex, rx, ry) {
-  repeatWrap(tex, rx, ry);
   return tex; // ready to use
 }
 
 function finishClamp(tex) {
-  clampWrap(tex);
+  Object.assign(tex, { wrapS: THREE.RepeatWrapping, wrapT: THREE.ClampToEdgeWrapping });
   return tex; // ready to use
 }
 
