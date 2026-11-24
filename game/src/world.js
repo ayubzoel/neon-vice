@@ -241,12 +241,111 @@ export function createWorld(scene) {
   // ground. D keeps its 'W' gap: the
   // median garden blocks a car's approach to it (parent manoeuvre
   // 2/2 clear at fx=300), so it is not a trap.
+  // v6.6-fix (round 2): garden C moved 12 m WEST (was x 270-288,
+  // gapC 279; now x 258-276, gapC 267) — the wide-left turn under
+  // flyover x=300 was wedging on its south hedge. The waypoint driver
+  // aims straight at the turn target, so the wide line is the diagonal
+  // from (270,0) to the northbound turn lane (295.5,-30), heading
+  // ~2.46 rad: reproduced 1/1, the car pinned at (279.3,-9.9) with
+  // speed 0, able only to reverse out. The binding corner is the west
+  // end of the south hedge's east segment (281.2,-12.5): it sits only
+  // 0.44 m from that diagonal, inside the nose circle's reach (nose
+  // 1.7 m ahead of the centre, r = 1.0 — vehicles.js carCollides).
+  // Widening the gap cannot fix it: the nose would enter the garden
+  // and wedge on the east hedge instead. Moving C NORTH cannot fix it
+  // either: the diagonal crosses every south edge between z = -12 and
+  // z = -22 inside the garden's x-span, so a north shift just moves
+  // the pin point. West is the direction that clears the band: the
+  // closest corner is now the east hedge's SE corner (275.5,-12.5),
+  // 3.9 m from the diagonal (car footprint needs > 1.0 m). The new
+  // rect was scanned on a 0.5 m collides() grid before the move: 0
+  // building colliders (only its own hedge lines); z is unchanged, so
+  // the road clearance vs the z=0 arterial is unchanged (6 m to the
+  // asphalt edge), and the x=279 car-at-gap line now clears the east
+  // hedge by 2.25 m. The foot gap moves with the rect (x = 267, path
+  // slab + benches + oaks all derive from it), so pedestrians still
+  // enter from the south. A/B/D are untouched. A static check of this
+  // clearance ships below as wideLeftClearance() and is asserted by
+  // tests/regression-v66fix.js, so a future garden move that re-blocks
+  // the diagonal fails loudly instead of silently re-wedging cars.
   const FLYOVER_GARDENS = [
     { x0: 30, x1: 48, z0: 12, z1: 30, gapSide: 'S', gapC: 39 },
     { x0: 72, x1: 84, z0: 72, z1: 83.6, gapSide: 'S', gapC: 78 },
-    { x0: 270, x1: 288, z0: -30, z1: -12, gapSide: 'S', gapC: 279 },
+    { x0: 258, x1: 276, z0: -30, z1: -12, gapSide: 'S', gapC: 267 },
     { x0: 324, x1: 336, z0: 36, z1: 48, gapSide: 'W', gapC: 42 },
   ];
+  // ---- Wide-left turn clearance (v6.6-fix, round 2) ---------------------
+  // Static guard for the diagonal above: for each flyover, the wide
+  // left is the straight segment from (f.x - 30, 0) to the northbound
+  // turn lane (f.x - 4.5, -30). If a flyover garden sits in the NW
+  // quadrant (x1 <= f.x, z1 <= 0), return the smallest distance from
+  // that segment to any of the garden's hedge centre-lines (hedges sit
+  // 0.5 m inside the rect; the south edge is split by the foot gap,
+  // gapC +/- 2.2 m, exactly as the hedge builder below does it). A car
+  // footprint (centre + nose + tail, each r = 1.0) needs clearance
+  // > 1.0 m; the fx=300 diagonal now measures 3.9 m. Flyovers with no
+  // NW garden report clearance null (nothing to hit). Pure geometry —
+  // no scene access — so the harness can assert it on every load.
+  function wideLeftClearance() {
+    const GAP_HALF = 2.2;
+    const INSET = 0.5;
+    const distPtSeg = (px, pz, ax, az, bx, bz) => {
+      const dx = bx - ax;
+      const dz = bz - az;
+      const len2 = dx * dx + dz * dz;
+      let t = len2 ? ((px - ax) * dx + (pz - az) * dz) / len2 : 0;
+      t = Math.max(0, Math.min(1, t));
+      return Math.hypot(px - (ax + t * dx), pz - (az + t * dz));
+    };
+    const distSegSeg = (ax, az, bx, bz, cx, cz, dx, dz) => {
+      // Segments that cross are 0 apart; otherwise the minimum is
+      // attained at an endpoint of one segment against the other.
+      const orient = (px, pz, qx, qz, rx, rz) => (qx - px) * (rz - pz) - (qz - pz) * (rx - px);
+      const o1 = orient(ax, az, bx, bz, cx, cz);
+      const o2 = orient(ax, az, bx, bz, dx, dz);
+      const o3 = orient(cx, cz, dx, dz, ax, az);
+      const o4 = orient(cx, cz, dx, dz, bx, bz);
+      if (((o1 > 0) !== (o2 > 0) && (o3 > 0) !== (o4 > 0))) return 0;
+      return Math.min(
+        distPtSeg(ax, az, cx, cz, dx, dz), distPtSeg(bx, bz, cx, cz, dx, dz),
+        distPtSeg(cx, cz, ax, az, bx, bz), distPtSeg(dx, dz, ax, az, bx, bz),
+      );
+    };
+    return FLYOVERS.map((f) => {
+      const g = FLYOVER_GARDENS.find((gg) => gg.x1 <= f.x && gg.z1 <= 0);
+      if (!g) return { fx: f.x, garden: null, clearanceM: null };
+      const hx0 = g.x0 + INSET;
+      const hx1 = g.x1 - INSET;
+      const hz0 = g.z0 + INSET;
+      const hz1 = g.z1 - INSET;
+      const edges = [
+        [hx0, hz0, hx1, hz0], // north edge
+        [hx0, hz1, hx1, hz1], // south edge (split below when it holds the gap)
+        [hx0, hz0, hx0, hz1], // west edge
+        [hx1, hz0, hx1, hz1], // east edge
+      ];
+      if (g.gapSide === 'S') {
+        edges[1] = null;
+        edges.push([hx0, hz1, g.gapC - GAP_HALF, hz1]);
+        edges.push([g.gapC + GAP_HALF, hz1, hx1, hz1]);
+      } else if (g.gapSide === 'N') {
+        edges[0] = null;
+        edges.push([hx0, hz0, g.gapC - GAP_HALF, hz0]);
+        edges.push([g.gapC + GAP_HALF, hz0, hx1, hz0]);
+      }
+      const ax = f.x - 30;
+      const az = 0;
+      const bx = f.x - 4.5;
+      const bz = -30;
+      let best = Infinity;
+      for (const e of edges) {
+        if (!e) continue;
+        best = Math.min(best, distSegSeg(ax, az, bx, bz, e[0], e[1], e[2], e[3]));
+      }
+      return { fx: f.x, garden: { x0: g.x0, x1: g.x1, z0: g.z0, z1: g.z1, gapC: g.gapC }, clearanceM: +best.toFixed(2) };
+    });
+  }
+  const WIDE_LEFT_CLEARANCE = wideLeftClearance();
   // Garden grass + a 2 m path slab from the gap to the garden centre.
   for (const g of FLYOVER_GARDENS) {
     const gg = new THREE.Mesh(
@@ -2074,6 +2173,10 @@ export function createWorld(scene) {
     roadGraph,
     flyovers: FLYOVERS.map((f) => ({ ...f, deckH: FLYOVER.deckH, rampLen: FLYOVER.rampLen, width: FLYOVER.width, deckHalf: FLYOVER.deckHalf, flyLaneX: FLYOVER.flyLaneX })),
     flyoverGardens: FLYOVER_GARDENS,
+    // v6.6-fix round 2: static wide-left diagonal clearance per flyover
+    // (see wideLeftClearance above) — the regression harness asserts
+    // every entry is null (no NW garden) or > 1.0 m.
+    wideLeftClearance: WIDE_LEFT_CLEARANCE,
     medianGardens: MEDIAN_GARDENS,
     medianObjects,
     // v6: steering-target lane shift at flyover intersections (see
@@ -2133,6 +2236,7 @@ export function createWorld(scene) {
     roadGraph,
     flyovers: api.flyovers,
     flyoverGardens: FLYOVER_GARDENS,
+    wideLeftClearance: WIDE_LEFT_CLEARANCE,
     medianGardens: MEDIAN_GARDENS,
     medianObjects,
     destinations,
