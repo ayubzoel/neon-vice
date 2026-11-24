@@ -8,41 +8,48 @@
 
 import { CONFIG } from './config.js';
 
+// Part-list builders: each vehicle is a list of boxes (size, offset,
+// material) plus wheels, assembled by one loop so the three vehicle
+// kinds share the same construction shape.
+function assembleParts(group, parts, matOf) {
+  for (const p of parts) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(p.w, p.h, p.d), matOf(p.mat));
+    mesh.position.set(p.x || 0, p.y || 0, p.z || 0);
+    group.add(mesh);
+  }
+  return group;
+}
+
 function makeCarBody(color, kind) {
   const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.5 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.2, metalness: 0.4 });
-  const bodyLen = kind === 'coupe' ? 4.2 : 4.6;
-  const body = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.7, bodyLen), mat);
-  body.position.y = 0.55;
-  group.add(body);
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.6, bodyLen * 0.45), dark);
-  cabin.position.set(0, 1.15, -bodyLen * 0.05);
-  group.add(cabin);
+  const paint = new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.5 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.2, metalness: 0.4 });
+  const lampMat = new THREE.MeshStandardMaterial({ color: 0xfff7cc, emissive: 0xfff2a8, emissiveIntensity: 0.9 });
+  const mats = { paint, glass, lamp: lampMat };
+  const len = kind === 'coupe' ? 4.2 : 4.6;
+  assembleParts(group, [
+    { mat: 'paint', w: 2.0, h: 0.7, d: len, y: 0.55 },
+    { mat: 'glass', w: 1.7, h: 0.6, d: len * 0.45, y: 1.15, z: -len * 0.05 },
+    { mat: 'lamp', w: 0.35, h: 0.18, d: 0.1, x: -0.6, y: 0.6, z: len / 2 + 0.02 },
+    { mat: 'lamp', w: 0.35, h: 0.18, d: 0.1, x: 0.6, y: 0.6, z: len / 2 + 0.02 },
+  ], (m) => mats[m]);
   const wheelGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.3, 12);
   const wheelMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.9 });
-  for (const [wx, wz] of [[-0.95, bodyLen * 0.32], [0.95, bodyLen * 0.32], [-0.95, -bodyLen * 0.32], [0.95, -bodyLen * 0.32]]) {
+  for (const [wx, wz] of [[-0.95, len * 0.32], [0.95, len * 0.32], [-0.95, -len * 0.32], [0.95, -len * 0.32]]) {
     const wheel = new THREE.Mesh(wheelGeo, wheelMat);
     wheel.rotation.z = Math.PI / 2;
     wheel.position.set(wx, 0.36, wz);
     group.add(wheel);
-  }
-  // Headlights.
-  const lightMat = new THREE.MeshStandardMaterial({ color: 0xfff7cc, emissive: 0xfff2a8, emissiveIntensity: 0.9 });
-  for (const lx of [-0.6, 0.6]) {
-    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.18, 0.1), lightMat);
-    lamp.position.set(lx, 0.6, bodyLen / 2 + 0.02);
-    group.add(lamp);
   }
   return group;
 }
 
 function makeBike(color) {
   const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.5 });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 2.0), mat);
-  body.position.y = 0.7;
-  group.add(body);
+  const paint = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.5 });
+  assembleParts(group, [
+    { mat: 'paint', w: 0.5, h: 0.5, d: 2.0, y: 0.7 },
+  ], () => paint);
   const wheelGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.18, 12);
   const wheelMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.9 });
   for (const wz of [0.85, -0.85]) {
@@ -56,14 +63,12 @@ function makeBike(color) {
 
 function makeBoat(color) {
   const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.3 });
-  const hull = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.8, 5.2), mat);
-  hull.position.y = 0.4;
-  group.add(hull);
-  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.9, 2.0),
-    new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.5 }));
-  cabin.position.set(0, 1.2, -0.4);
-  group.add(cabin);
+  const paint = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.3 });
+  const white = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.5 });
+  assembleParts(group, [
+    { mat: 'paint', w: 2.2, h: 0.8, d: 5.2, y: 0.4 },
+    { mat: 'white', w: 1.6, h: 0.9, d: 2.0, y: 1.2, z: -0.4 },
+  ], (m) => (m === 'white' ? white : paint));
   return group;
 }
 
@@ -79,13 +84,14 @@ export function createVehicles(scene, world) {
     // findOpenGround (road-blind) — a car snapped out of a building must
     // not land on, or overhang, a road. Falls back to findOpenGround
     // when findParkSpot is unavailable (older world build).
-    if (kind !== 'boat' && opts.parked !== false && world.findOpenGround) {
-      try {
-        const snap = world.findParkSpot
-          ? world.findParkSpot(x, z, 30)
-          : world.findOpenGround(x, z, 30);
-        if (snap) { x = snap.x; z = snap.z; }
-      } catch { /* keep raw */ }
+    if (kind !== 'boat' && opts.parked !== false) {
+      const snapTo = world.findParkSpot || world.findOpenGround;
+      if (snapTo) {
+        try {
+          const snap = snapTo(x, z, 30);
+          if (snap) { x = snap.x; z = snap.z; }
+        } catch { /* keep raw */ }
+      }
     }
     const mesh = kind === 'bike' ? makeBike(model) : kind === 'boat' ? makeBoat(model) : makeCarBody(model, kind);
     mesh.position.set(x, kind === 'boat' ? 0.15 : 0, z);
@@ -95,14 +101,20 @@ export function createVehicles(scene, world) {
     }
     mesh.rotation.y = heading;
     scene.add(mesh);
+    const spec = {
+      sedan: { top: 32, accel: 14 },
+      coupe: { top: 38, accel: 14 },
+      bike: { top: 34, accel: 14 },
+      boat: { top: 22, accel: 6 },
+    }[kind] || { top: 32, accel: 14 };
     const v = {
       id: idCounter += 1,
       kind, // 'sedan' | 'coupe' | 'bike' | 'boat'
       mesh,
       heading,
       speed: 0,
-      maxSpeed: kind === 'bike' ? 34 : kind === 'boat' ? 22 : kind === 'coupe' ? 38 : 32,
-      accel: kind === 'boat' ? 6 : 14,
+      maxSpeed: spec.top,
+      accel: spec.accel,
       parked: opts.parked !== false,
       traffic: !!opts.traffic,
       missionCar: !!opts.missionCar,
@@ -152,24 +164,21 @@ export function createVehicles(scene, world) {
     { x: -300, z: -120 }, { x: 300, z: -120 }, { x: 300, z: 120 }, { x: -300, z: 120 },
   ];
   const trafficColors = [0x94a3b8, 0xf97316, 0x3b82f6, 0xa3e635];
-  const traffic = [];
-  for (let i = 0; i < 4; i += 1) {
-    const start = loop[i];
-    const v = addVehicle('sedan', trafficColors[i], start.x, start.z, 0, { parked: false, traffic: true });
+  const traffic = loop.map((corner, i) => {
+    const v = addVehicle('sedan', trafficColors[i], corner.x, corner.z, 0, { parked: false, traffic: true });
     v.path = loop;
     v.pathIndex = (i + 1) % loop.length;
-    traffic.push(v);
-  }
+    return v;
+  });
 
   function nearestVehicle(x, z, maxDist) {
     let best = null;
     let bestD = maxDist;
     for (const v of vehicles) {
       const d = Math.hypot(v.mesh.position.x - x, v.mesh.position.z - z);
-      if (d < bestD) {
-        bestD = d;
-        best = v;
-      }
+      if (d >= bestD) continue;
+      bestD = d;
+      best = v;
     }
     return best;
   }
@@ -188,31 +197,30 @@ export function createVehicles(scene, world) {
   // deck. Boats pass no y (water level, barriers inactive).
   function carCollides(x, z, heading, y = 0) {
     if (!world.collides) return false;
-    const sx = Math.sin(heading);
-    const sz = Math.cos(heading);
-    if (world.collides(x, z, 1.0, y)) return true;
-    if (world.collides(x + sx * 1.7, z + sz * 1.7, 1.0, y)) return true;
-    if (world.collides(x - sx * 1.7, z - sz * 1.7, 1.0, y)) return true;
+    const fx = Math.sin(heading);
+    const fz = Math.cos(heading);
+    for (const along of [0, 1.7, -1.7]) {
+      if (world.collides(x + fx * along, z + fz * along, 1.0, y)) return true;
+    }
     return false;
   }
 
   function driveVehicle(v, input, dt) {
     const isBoat = v.kind === 'boat';
-    const accel = isBoat ? v.accel : v.accel;
     // Builder B v4 rev 3 — touch driving: the stick STEERS ONLY (left /
     // right). It never gives gas any more: throttle comes from the GAS
     // pedal (touch) or W (keyboard), braking from the REM pedal or S.
     // Keyboard is unchanged: W gas, S brake/reverse, A/D steer. Same
     // mapping for the bike and the boat.
-    let forward = input.forward;
-    let turn = input.turn;
+    let throttle = input.forward;
+    let steerIn = input.turn;
     const stick = input.stick;
     if (stick && stick.active && Math.hypot(stick.x, stick.y) > 0.12) {
       // Stick Y is deliberately ignored while driving: pushing the stick
       // up must not move the car. Only the X axis steers.
-      if (turn === 0) turn = Math.max(-1, Math.min(1, -stick.x));
+      if (steerIn === 0) steerIn = Math.max(-1, Math.min(1, -stick.x));
     }
-    if (input.gas) forward = Math.max(forward, 1);
+    if (input.gas) throttle = Math.max(throttle, 1);
     // v6 BUG 1: REM (touch) and S (keyboard) are the SAME control —
     // brake-then-reverse. The old REM branch braked to a full stop and
     // HELD at 0, so on touch (Ayub's phone) a car/motor could never
@@ -221,12 +229,17 @@ export function createVehicles(scene, world) {
     // going into reverse up to 45% of top speed (~40-50% of forward).
     // GAS still wins forward once REM is released.
     const braking = !!input.brake;
-    if (forward > 0 && !braking) v.speed += accel * forward * dt;
-    else if (braking || forward < 0) {
-      if (v.speed > 0.5) v.speed -= (braking ? accel * 2.2 : accel * 1.4) * dt;
-      else v.speed -= accel * 0.6 * dt;
-    } else v.speed -= Math.sign(v.speed) * Math.min(Math.abs(v.speed), 8 * dt);
-    v.speed = Math.max(-v.maxSpeed * 0.45, Math.min(v.maxSpeed, v.speed));
+    const accel = v.accel;
+    if (throttle > 0 && !braking) {
+      v.speed += accel * throttle * dt;
+    } else if (braking || throttle < 0) {
+      const rate = v.speed > 0.5 ? (braking ? accel * 2.2 : accel * 1.4) : accel * 0.6;
+      v.speed -= rate * dt;
+    } else {
+      v.speed -= Math.sign(v.speed) * Math.min(Math.abs(v.speed), 8 * dt);
+    }
+    const reverseCap = -v.maxSpeed * 0.45;
+    v.speed = Math.max(reverseCap, Math.min(v.maxSpeed, v.speed));
     // v6.6 item 5: sand is slow — a car on the beach (x 420..470) tops
     // out at ~6 m/s forward (reverse 45% of that), so the beach is
     // drivable but sluggish, like real sand. Boats are exempt (they are
@@ -242,7 +255,9 @@ export function createVehicles(scene, world) {
     // speed 0 must not spin it in place (v5 probe: 0.96 rad in 2 s
     // game-time). Authority ramps with |speed| so low-speed manoeuvres
     // still steer; reversing inverts it, as before.
-    const steer = turn * (v.speed >= 0 ? 1 : -1) * Math.min(1, Math.abs(v.speed) / 4);
+    const dirSign = v.speed >= 0 ? 1 : -1;
+    const authority = Math.min(1, Math.abs(v.speed) / 4);
+    const turnRate = isBoat ? 1.1 : 1.9;
     // Same sign as on foot (player.js): A / turn +1 raises the heading,
     // which turns the car to screen-left. (Was inverted: cars steered away
     // from the target and could never complete a driven mission.)
@@ -253,10 +268,10 @@ export function createVehicles(scene, world) {
     // no step out accepted). If the turn would put a check point inside a
     // collider, keep the old heading — the car can still reverse out and
     // turn once clear. Boats skip this (water-rect check below).
-    const newHeading = v.heading + steer * (isBoat ? 1.1 : 1.9) * dt;
-    if (isBoat || !world.collides || !carCollides(v.mesh.position.x, v.mesh.position.z, newHeading, v.mesh.position.y)) {
-      v.heading = newHeading;
-    }
+    const nextHeading = v.heading + steerIn * dirSign * authority * turnRate * dt;
+    const turnOk = isBoat || !world.collides
+      || !carCollides(v.mesh.position.x, v.mesh.position.z, nextHeading, v.mesh.position.y);
+    if (turnOk) v.heading = nextHeading;
     const nx = v.mesh.position.x + Math.sin(v.heading) * v.speed * dt;
     const nz = v.mesh.position.z + Math.cos(v.heading) * v.speed * dt;
     if (isBoat) {
@@ -292,24 +307,31 @@ export function createVehicles(scene, world) {
   // there (see below).
   function nearFlyover(v) {
     if (!world.flyovers) return false;
-    for (const f of world.flyovers) {
-      if (Math.abs(v.mesh.position.x - f.x) < 15 && Math.abs(v.mesh.position.z - f.z) < 70) return true;
-    }
-    return false;
+    const px = v.mesh.position.x;
+    const pz = v.mesh.position.z;
+    return world.flyovers.some((f) => Math.abs(px - f.x) < 15 && Math.abs(pz - f.z) < 70);
+  }
+
+  function randomDestination() {
+    return { x: (Math.random() - 0.5) * 800, z: (Math.random() - 0.5) * 600 };
+  }
+
+  function adoptRoute(v, route) {
+    if (!Array.isArray(route) || route.length <= 1) return false;
+    v.path = route;
+    v.pathIndex = 0;
+    return true;
   }
 
   function repathStock(v) {
-    if (!world.roadGraph || !world.roadGraph.findPath) return false;
+    const graph = world.roadGraph;
+    if (!graph || !graph.findPath) return false;
     try {
-      const p = world.roadGraph.findPath(
+      const route = graph.findPath(
         { x: v.mesh.position.x, z: v.mesh.position.z },
-        { x: (Math.random() - 0.5) * 800, z: (Math.random() - 0.5) * 600 },
+        randomDestination(),
       );
-      if (Array.isArray(p) && p.length > 1) {
-        v.path = p;
-        v.pathIndex = 0;
-        return true;
-      }
+      return adoptRoute(v, route);
     } catch { /* keep the loop */ }
     return false;
   }
@@ -321,20 +343,13 @@ export function createVehicles(scene, world) {
   // repath would route the car back over the deck it just left.
   function repathFromAhead(v) {
     const graph = world.roadGraph;
-    if (graph && graph.findPath && world.aheadNode) {
-      try {
-        const ahead = world.aheadNode(v.mesh.position.x, v.mesh.position.z, v.heading);
-        if (ahead) {
-          const p = graph.findPath(ahead.id,
-            { x: (Math.random() - 0.5) * 800, z: (Math.random() - 0.5) * 600 });
-          if (Array.isArray(p) && p.length > 1) {
-            v.path = p;
-            v.pathIndex = 0;
-            return true;
-          }
-        }
-      } catch { /* fall through to repathStock */ }
-    }
+    if (!graph || !graph.findPath || !world.aheadNode) return repathStock(v);
+    try {
+      const ahead = world.aheadNode(v.mesh.position.x, v.mesh.position.z, v.heading);
+      if (!ahead) return repathStock(v);
+      const route = graph.findPath(ahead.id, randomDestination());
+      if (adoptRoute(v, route)) return true;
+    } catch { /* fall through to repathStock */ }
     return repathStock(v);
   }
 
@@ -344,15 +359,17 @@ export function createVehicles(scene, world) {
   // node sits behind the car's travel direction.
   function isFlyoverNodePassed(v, target) {
     if (!world.flyovers) return false;
-    for (const f of world.flyovers) {
-      if (Math.abs(target.x - f.x) > 0.5 || Math.abs(target.z - f.z) > 0.5) continue;
-      if (Math.abs(v.mesh.position.x - f.x) >= 15) continue;
-      if (Math.abs(v.mesh.position.z - f.z) >= 130) continue;
-      const dot = (target.x - v.mesh.position.x) * Math.sin(v.heading)
-        + (target.z - v.mesh.position.z) * Math.cos(v.heading);
-      if (dot < 0) return true;
-    }
-    return false;
+    const px = v.mesh.position.x;
+    const pz = v.mesh.position.z;
+    const fx = Math.sin(v.heading);
+    const fz = Math.cos(v.heading);
+    return world.flyovers.some((f) => {
+      if (Math.abs(target.x - f.x) > 0.5 || Math.abs(target.z - f.z) > 0.5) return false;
+      if (Math.abs(px - f.x) >= 15) return false;
+      if (Math.abs(pz - f.z) >= 130) return false;
+      const toward = (target.x - px) * fx + (target.z - pz) * fz;
+      return toward < 0;
+    });
   }
 
   // v6.2 unstuck: a traffic car that cannot move (displacement < 6 m)
@@ -375,41 +392,35 @@ export function createVehicles(scene, world) {
     const px = v.mesh.position.x;
     const pz = v.mesh.position.z;
     const py = v.mesh.position.y;
-    let tx = px;
-    let tz = pz;
+    let dest = null;
     let forcedHeading = null;
-    let target = null;
     if (world.unstuckTarget) {
-      try { target = world.unstuckTarget(px, pz, py, v.heading); } catch { /* fallback below */ }
+      try { dest = world.unstuckTarget(px, pz, py, v.heading); } catch { /* fallback below */ }
     }
-    if (target) {
-      tx = target.x;
-      tz = target.z;
-      forcedHeading = (typeof target.heading === 'number') ? target.heading : null;
+    if (dest) {
+      forcedHeading = (typeof dest.heading === 'number') ? dest.heading : null;
     } else {
       // Fallback (no helper): nearest road point, but never the car's
       // own position — a < 2 m teleport cannot free a wedged car.
       const graph = world.roadGraph;
+      const candidates = [];
       if (graph && graph.nearestOnRoad) {
-        try {
-          const near = graph.nearestOnRoad(tx, tz);
-          if (near && Math.hypot(near.x - px, near.z - pz) >= 2) { tx = near.x; tz = near.z; }
-          else if (graph.nearestNode) {
-            const n = graph.nearestNode(px, pz);
-            if (n && Math.hypot(n.x - px, n.z - pz) >= 2) { tx = n.x; tz = n.z; }
-          }
-        } catch { /* keep position */ }
+        try { candidates.push(graph.nearestOnRoad(px, pz)); } catch { /* none */ }
       }
+      if (graph && graph.nearestNode) {
+        try { candidates.push(graph.nearestNode(px, pz)); } catch { /* none */ }
+      }
+      dest = candidates.find((p) => p && Math.hypot(p.x - px, p.z - pz) >= 2) || null;
     }
+    let tx = dest ? dest.x : px;
+    let tz = dest ? dest.z : pz;
     // Centreline points are clear by construction; if one ever is not,
     // fall back to open ground so the car is never teleported into a wall.
-    if (world.collides && world.collides(tx, tz, 1.5)) {
-      if (world.findOpenGround) {
-        try {
-          const g = world.findOpenGround(tx, tz, 30);
-          if (g) { tx = g.x; tz = g.z; }
-        } catch { /* keep centreline point */ }
-      }
+    if (world.collides && world.collides(tx, tz, 1.5) && world.findOpenGround) {
+      try {
+        const g = world.findOpenGround(tx, tz, 30);
+        if (g) { tx = g.x; tz = g.z; }
+      } catch { /* keep centreline point */ }
     }
     v.mesh.position.x = tx;
     v.mesh.position.z = tz;
@@ -456,46 +467,118 @@ export function createVehicles(scene, world) {
       v._stuckX = px;
       v._stuckZ = pz;
       v._stuckT = 0;
+      return;
     }
-    if (Math.hypot(px - v._stuckX, pz - v._stuckZ) > 6) {
+    const moved = Math.hypot(px - v._stuckX, pz - v._stuckZ);
+    if (moved > 6) {
       v._stuckX = px;
       v._stuckZ = pz;
       v._stuckT = 0;
-    } else {
-      v._stuckT += dt;
-      if (v._stuckT > 15) unstickCar(v);
+      return;
     }
+    v._stuckT += dt;
+    if (v._stuckT > 15) unstickCar(v);
   }
 
   function updateTraffic(dt, driven) {
+    // Back out of a wedge: reverse along the way the car came instead
+    // of retrying a blocked beeline. Returns true when the car spent
+    // this frame reversing.
+    const reverseOut = (v) => {
+      v.reverse -= dt;
+      const bx = v.mesh.position.x - Math.sin(v.heading) * 4 * dt;
+      const bz = v.mesh.position.z - Math.cos(v.heading) * 4 * dt;
+      // v6.1: the escape check uses the FOOTPRINT (carCollides, r=1.0)
+      // and the height AT THE DESTINATION. The old single-point r=1.4
+      // check with the car's CURRENT (elevated) y blocked the reverse
+      // step itself on a flyover ramp: the car could neither go forward
+      // nor back, and sat at speed -4 forever. Backing down the ramp
+      // drops the destination height below the 1.5 m barrier gate, so
+      // the car now always escapes downhill.
+      const by = world.groundHeightAt
+        ? world.groundHeightAt(bx, bz, v.mesh.position.y) : v.mesh.position.y;
+      if (!world.collides || !carCollides(bx, bz, v.heading, by)) {
+        v.mesh.position.x = bx;
+        v.mesh.position.z = bz;
+      } else {
+        v.reverse = 0;
+      }
+      v.speed = -4;
+      v.mesh.rotation.y = v.heading;
+      return true;
+    };
+
+    // Red light / pile-up hold for one car, given its steer target.
+    // Returns { hold, cap } — cap limits speed on yellow. The signal
+    // lookup uses the raw route node; the distance/axis use the steer
+    // target, exactly as before.
+    const holdFor = (v, steerTarget, target, dist) => {
+      const graph = world.roadGraph;
+      let hold = false;
+      let cap = Infinity;
+      if (graph && graph.arterialNodeNear && !steerTarget.viaFlyover) {
+        const node = graph.arterialNodeNear(target.x, target.z, 3);
+        if (node && dist < 22) {
+          const dx = steerTarget.x - v.mesh.position.x;
+          const dz = steerTarget.z - v.mesh.position.z;
+          const axis = Math.abs(dx) > Math.abs(dz) ? 'EW' : 'NS';
+          const state = graph.trafficLight(axis);
+          if (state === 'red') hold = true;
+          else if (state === 'yellow') cap = 3;
+        }
+      }
+      if (hold) return { hold, cap };
+      const fx = Math.sin(v.heading);
+      const fz = Math.cos(v.heading);
+      for (const o of vehicles) {
+        // Traffic cars going the same direction only: parked / mission /
+        // driven cars and opposite-direction cars are excluded — holding
+        // for them deadlocks (a mission car never moves; a head-on car
+        // waits for you while you wait for it).
+        // v6.1: height guard — a car on the deck (y≈6) is NOT in the
+        // way of ground traffic underneath it, and vice versa. Without
+        // it a ground car queues forever behind a deck car 7 m ahead
+        // in 2D (probe run 2: id=1017 froze 20 s at (54.45,0,0) behind
+        // id=1016 on the deck above it).
+        if (o === v || !o.traffic) continue;
+        if (Math.abs(o.mesh.position.y - v.mesh.position.y) > 2.5) continue;
+        if (Math.sin(o.heading) * fx + Math.cos(o.heading) * fz < 0.5) continue;
+        const ox = o.mesh.position.x - v.mesh.position.x;
+        const oz = o.mesh.position.z - v.mesh.position.z;
+        const od = Math.hypot(ox, oz);
+        if (od < 8 && od > 0.01 && (ox * fx + oz * fz) / od > 0.5) { hold = true; break; }
+      }
+      return { hold, cap };
+    };
+
+    // Aim point for this frame: usually the steer target itself, but a
+    // flyover crossing aims 18 m ahead on the lane centreline (a far
+    // node leaves a 0.3 m lateral offset frozen and the car clips the
+    // deck barrier), and a lane change completes 75 m before its node.
+    const aimPoint = (v, steerTarget, target, prev, dist) => {
+      if (steerTarget.viaFlyover) {
+        const s = steerTarget.z >= v.mesh.position.z ? 1 : -1;
+        return { x: steerTarget.x, z: v.mesh.position.z + s * 18 };
+      }
+      if (steerTarget.x !== target.x && dist > 80) {
+        const inNS = prev
+          ? Math.abs(target.z - prev.z) >= Math.abs(target.x - prev.x)
+          : Math.abs(target.z - v.mesh.position.z) >= Math.abs(target.x - v.mesh.position.x);
+        if (inNS) {
+          const s = (target.z - (prev ? prev.z : v.mesh.position.z)) >= 0 ? 1 : -1;
+          return { x: steerTarget.x, z: target.z - s * 75 };
+        }
+      }
+      return { x: steerTarget.x, z: steerTarget.z };
+    };
+
     for (const v of traffic) {
       // The player stole this one: driveVehicle owns it, not the AI
       // (and the unstuck must never teleport a car Vera is driving).
       if (driven && v === driven) continue;
       trackStill(v, dt);
-      // Backing out of a wedge (same as the ambient cars): reverse along
-      // the way the car came instead of retrying a blocked beeline.
       if (v.reverse > 0) {
-        v.reverse -= dt;
-        const bx = v.mesh.position.x - Math.sin(v.heading) * 4 * dt;
-        const bz = v.mesh.position.z - Math.cos(v.heading) * 4 * dt;
-        // v6.1: the escape check uses the FOOTPRINT (carCollides, r=1.0)
-        // and the height AT THE DESTINATION. The old single-point r=1.4
-        // check with the car's CURRENT (elevated) y blocked the reverse
-        // step itself on a flyover ramp: the car could neither go forward
-        // nor back, and sat at speed -4 forever. Backing down the ramp
-        // drops the destination height below the 1.5 m barrier gate, so
-        // the car now always escapes downhill.
-        const by = world.groundHeightAt
-          ? world.groundHeightAt(bx, bz, v.mesh.position.y) : v.mesh.position.y;
-        if (!world.collides || !carCollides(bx, bz, v.heading, by)) {
-          v.mesh.position.x = bx;
-          v.mesh.position.z = bz;
-        } else {
-          v.reverse = 0;
-        }
-        v.speed = -4;
-        v.mesh.rotation.y = v.heading;
+        reverseOut(v);
         continue;
       }
       if (v.wait > 0) {
@@ -576,43 +659,7 @@ export function createVehicles(scene, world) {
       const dx = steerTarget.x - v.mesh.position.x;
       const dz = steerTarget.z - v.mesh.position.z;
       const dist = Math.hypot(dx, dz);
-      // Red light + anti-pileup (same rules as the ambient cars): stop
-      // before a signalised arterial intersection on red, crawl on yellow,
-      // and never drive into the vehicle ahead.
-      let hold = false;
-      let cap = Infinity;
-      const graph = world.roadGraph;
-      if (graph && graph.arterialNodeNear && !steerTarget.viaFlyover) {
-        const node = graph.arterialNodeNear(target.x, target.z, 3);
-        if (node && dist < 22) {
-          const axis = Math.abs(dx) > Math.abs(dz) ? 'EW' : 'NS';
-          const state = graph.trafficLight(axis);
-          if (state === 'red') hold = true;
-          else if (state === 'yellow') cap = 3;
-        }
-      }
-      if (!hold) {
-        const fx = Math.sin(v.heading);
-        const fz = Math.cos(v.heading);
-        for (const o of vehicles) {
-          // Traffic cars going the same direction only: parked / mission /
-          // driven cars and opposite-direction cars are excluded — holding
-          // for them deadlocks (a mission car never moves; a head-on car
-          // waits for you while you wait for it).
-          // v6.1: height guard — a car on the deck (y≈6) is NOT in the
-          // way of ground traffic underneath it, and vice versa. Without
-          // it a ground car queues forever behind a deck car 7 m ahead
-          // in 2D (probe run 2: id=1017 froze 20 s at (54.45,0,0) behind
-          // id=1016 on the deck above it).
-          if (o === v || !o.traffic) continue;
-          if (Math.abs(o.mesh.position.y - v.mesh.position.y) > 2.5) continue;
-          if (Math.sin(o.heading) * fx + Math.cos(o.heading) * fz < 0.5) continue;
-          const ox = o.mesh.position.x - v.mesh.position.x;
-          const oz = o.mesh.position.z - v.mesh.position.z;
-          const od = Math.hypot(ox, oz);
-          if (od < 8 && od > 0.01 && (ox * fx + oz * fz) / od > 0.5) { hold = true; break; }
-        }
-      }
+      const { hold, cap } = holdFor(v, steerTarget, target, dist);
       if (hold) {
         v.speed = Math.max(0, v.speed - 24 * dt);
         continue;
@@ -621,38 +668,8 @@ export function createVehicles(scene, world) {
         v.pathIndex = (v.pathIndex + 1) % v.path.length;
         continue;
       }
-      // v6.2: on a flyover crossing, aim 18 m ahead on the lane
-      // centreline — NOT at the far node. Aiming 75-120 m out leaves a
-      // 0.3 m lateral offset frozen (a 0.004 rad heading error), so the
-      // car enters the ramp off-centre and its footprint clips the deck
-      // barrier exactly where the ramp height crosses the 1.5 m gate
-      // (run2 id=10 bounced at z≈48, y≈1.4, then wedged on the deck).
-      // A short lookahead converges the offset before the ramp foot.
-      let aimX = steerTarget.x;
-      let aimZ = steerTarget.z;
-      if (steerTarget.viaFlyover) {
-        const s = steerTarget.z >= v.mesh.position.z ? 1 : -1;
-        aimX = steerTarget.x;
-        aimZ = v.mesh.position.z + s * 18;
-      } else if (steerTarget.x !== target.x && dist > 80) {
-        // v6.1: complete the lane change BEFORE the ramp foot (turn
-        // lane): steering at the lane point ON the node from 120 m out
-        // only shifts halfway by the ramp foot, so the approach line
-        // crosses the ramp footprint and the car wedges once y passes
-        // the 1.5 m barrier gate (run 3: id=11 at (57.57,1.29,49.58)).
-        // Aim at the lane point 75 m before the node instead, so the
-        // car is fully in its lane before the ramp starts. dist /
-        // node-advance / red-light above still use the node point.
-        const inNS = prev
-          ? Math.abs(target.z - prev.z) >= Math.abs(target.x - prev.x)
-          : Math.abs(target.z - v.mesh.position.z) >= Math.abs(target.x - v.mesh.position.x);
-        if (inNS) {
-          const s = (target.z - (prev ? prev.z : v.mesh.position.z)) >= 0 ? 1 : -1;
-          aimX = steerTarget.x;
-          aimZ = target.z - s * 75;
-        }
-      }
-      const targetHeading = Math.atan2(aimX - v.mesh.position.x, aimZ - v.mesh.position.z);
+      const aim = aimPoint(v, steerTarget, target, prev, dist);
+      const targetHeading = Math.atan2(aim.x - v.mesh.position.x, aim.z - v.mesh.position.z);
       let diff = targetHeading - v.heading;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
@@ -672,6 +689,7 @@ export function createVehicles(scene, world) {
       // at 6 m/s so the coarse SwiftShader steps track the lane centre
       // instead of overshooting into the barrier.
       if (steerTarget.viaFlyover) wantSpeed = Math.min(wantSpeed, 6);
+      const graph = world.roadGraph;
       if (graph && graph.isOnRoad && !graph.isOnRoad(v.mesh.position.x, v.mesh.position.z)) {
         wantSpeed = Math.min(wantSpeed, 4);
       }

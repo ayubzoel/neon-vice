@@ -8,6 +8,12 @@
 
 import { CONFIG } from './config.js';
 
+function boxPart(w, h, d, x, y, z, mat) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  mesh.position.set(x, y, z);
+  return mesh;
+}
+
 function makeWeaponMesh(kind) {
   // Pistol vs SMG must read as DIFFERENT weapons from the 9 m chase camera
   // at night (tester: both were the same small dark blob). Pistol: short,
@@ -15,70 +21,40 @@ function makeWeaponMesh(kind) {
   // orange magazine + stock + amber muzzle stripe, scaled up ~1.6x.
   const group = new THREE.Group();
   if (kind === 'pistol') {
-    const mat = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.3, metalness: 0.8 });
-    const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.17, 0.62), mat);
-    group.add(barrel);
-    const gripMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.5, emissive: 0x92400e, emissiveIntensity: 0.7 });
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.38, 0.17), gripMat);
-    grip.position.set(0, -0.22, -0.18);
-    group.add(grip);
-    const sight = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.09, 0.1),
-      new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xf59e0b, emissiveIntensity: 1.2 }));
-    sight.position.set(0, 0.13, 0.22);
-    group.add(sight);
+    const steel = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.3, metalness: 0.8 });
+    const amber = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.5, emissive: 0x92400e, emissiveIntensity: 0.7 });
+    const glow = new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0xf59e0b, emissiveIntensity: 1.2 });
+    group.add(boxPart(0.14, 0.17, 0.62, 0, 0, 0, steel));
+    group.add(boxPart(0.13, 0.38, 0.17, 0, -0.22, -0.18, amber));
+    group.add(boxPart(0.05, 0.09, 0.1, 0, 0.13, 0.22, glow));
   } else {
-    const mat = new THREE.MeshStandardMaterial({ color: 0x4d7c0f, roughness: 0.4, metalness: 0.6 });
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.21, 0.98), mat);
-    group.add(body);
-    const magMat = new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.45, emissive: 0x7c2d12, emissiveIntensity: 0.8 });
-    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.48, 0.15), magMat);
-    mag.position.set(0, -0.3, 0.08);
-    group.add(mag);
-    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.17, 0.38),
-      new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.4, metalness: 0.6 }));
-    stock.position.set(0, 0, -0.64);
-    group.add(stock);
-    const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.06, 0.2),
-      new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x22d3ee, emissiveIntensity: 1.4 }));
-    stripe.position.set(0, 0.12, 0.32);
-    group.add(stripe);
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.3, 0.14),
-      new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.6 }));
-    grip.position.set(0, -0.2, -0.3);
-    group.add(grip);
+    const olive = new THREE.MeshStandardMaterial({ color: 0x4d7c0f, roughness: 0.4, metalness: 0.6 });
+    const orange = new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.45, emissive: 0x7c2d12, emissiveIntensity: 0.8 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.4, metalness: 0.6 });
+    const cyan = new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x22d3ee, emissiveIntensity: 1.4 });
+    const black = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.6 });
+    group.add(boxPart(0.17, 0.21, 0.98, 0, 0, 0, olive));
+    group.add(boxPart(0.12, 0.48, 0.15, 0, -0.3, 0.08, orange));
+    group.add(boxPart(0.13, 0.17, 0.38, 0, 0, -0.64, dark));
+    group.add(boxPart(0.18, 0.06, 0.2, 0, 0.12, 0.32, cyan));
+    group.add(boxPart(0.12, 0.3, 0.14, 0, -0.2, -0.3, black));
   }
   return group;
 }
 
 function makeNpcMesh(color, armed, opts = {}) {
   const group = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(0.7, 1.1, 0.42),
-    new THREE.MeshStandardMaterial({ color, roughness: 0.7 }),
-  );
-  body.position.y = 0.95;
-  group.add(body);
-  const head = new THREE.Mesh(
-    new THREE.BoxGeometry(0.46, 0.46, 0.42),
-    new THREE.MeshStandardMaterial({ color: 0xe8b88a, roughness: 0.6 }),
-  );
-  head.position.y = 1.75;
-  group.add(head);
+  const skin = new THREE.MeshStandardMaterial({ color: 0xe8b88a, roughness: 0.6 });
+  const shirt = new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
+  group.add(boxPart(0.7, 1.1, 0.42, 0, 0.95, 0, shirt));
+  group.add(boxPart(0.46, 0.46, 0.42, 0, 1.75, 0, skin));
   if (opts.police) {
     // Navy cap + pale badge so a cop reads as a cop at night, not a thug
     // (thugs are red-bodied, no cap). Cheap: 2 extra boxes per cop.
-    const cap = new THREE.Mesh(
-      new THREE.BoxGeometry(0.5, 0.12, 0.46),
-      new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.6 }),
-    );
-    cap.position.y = 2.02;
-    group.add(cap);
-    const badge = new THREE.Mesh(
-      new THREE.BoxGeometry(0.14, 0.14, 0.05),
-      new THREE.MeshStandardMaterial({ color: 0xfacc15, emissive: 0xfacc15, emissiveIntensity: 0.7, roughness: 0.4 }),
-    );
-    badge.position.set(-0.18, 1.25, 0.22);
-    group.add(badge);
+    const navy = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.6 });
+    const gold = new THREE.MeshStandardMaterial({ color: 0xfacc15, emissive: 0xfacc15, emissiveIntensity: 0.7, roughness: 0.4 });
+    group.add(boxPart(0.5, 0.12, 0.46, 0, 2.02, 0, navy));
+    group.add(boxPart(0.14, 0.14, 0.05, -0.18, 1.25, 0.22, gold));
   }
   if (armed) {
     const gun = makeWeaponMesh('pistol');
@@ -144,17 +120,18 @@ export function createCombat(scene, world, player, audio) {
     if (!aiming || !locked || locked.dead) return { aiming, locked: null };
     const px = player.group.position.x;
     const pz = player.group.position.z;
-    const dist = Math.hypot(locked.mesh.position.x - px, locked.mesh.position.z - pz);
+    const lx = locked.mesh.position.x;
+    const lz = locked.mesh.position.z;
     return {
       aiming,
       locked: {
         kind: locked.kind,
         label: AIM_LABEL[locked.kind] || locked.kind,
         hp: locked.hp,
-        dist: +dist.toFixed(1),
-        x: locked.mesh.position.x,
+        dist: +Math.hypot(lx - px, lz - pz).toFixed(1),
+        x: lx,
         y: 1.2,
-        z: locked.mesh.position.z,
+        z: lz,
       },
     };
   }
@@ -187,13 +164,13 @@ export function createCombat(scene, world, player, audio) {
   function nearestPoliceDist() {
     const px = player.group.position.x;
     const pz = player.group.position.z;
-    let best = null;
+    let closest = null;
     for (const u of [...police, ...policeCars]) {
       if (u.dead) continue;
       const d = Math.hypot(u.mesh.position.x - px, u.mesh.position.z - pz);
-      if (best === null || d < best) best = d;
+      if (closest === null || d < closest) closest = d;
     }
-    return best === null ? null : +best.toFixed(1);
+    return closest === null ? null : +closest.toFixed(1);
   }
 
   // --- Line-of-sight escape (v6.3 fix) ------------------------------------
@@ -223,19 +200,22 @@ export function createCombat(scene, world, player, audio) {
     const dz = bz - az;
     const dist = Math.hypot(dx, dz);
     if (dist < 0.001) return true;
-    const n = Math.max(1, Math.ceil(dist / 4));
-    for (let i = 1; i < n; i += 1) {
-      const t = i / n;
-      if (world.collides(ax + dx * t, az + dz * t, 0)) return false;
+    const probes = Math.max(1, Math.ceil(dist / 4));
+    for (let k = 1; k < probes; k++) {
+      const f = k / probes;
+      if (world.collides(ax + dx * f, az + dz * f, 0)) return false;
     }
     return true;
+  }
+
+  function livingUnits() {
+    return [...police, ...policeCars].filter((u) => !u.dead);
   }
 
   function nearestLivingPolice(px, pz) {
     let best = null;
     let bestD = Infinity;
-    for (const u of [...police, ...policeCars]) {
-      if (u.dead) continue;
+    for (const u of livingUnits()) {
       const d = Math.hypot(u.mesh.position.x - px, u.mesh.position.z - pz);
       if (d < bestD) { bestD = d; best = u; }
     }
@@ -246,8 +226,7 @@ export function createCombat(scene, world, player, audio) {
     const sight = CONFIG.wanted.sightRange || 70;
     const near = nearestLivingPolice(px, pz);
     const fresh = new Map();
-    for (const u of [...police, ...policeCars]) {
-      if (u.dead) continue;
+    for (const u of livingUnits()) {
       const ux = u.mesh.position.x;
       const uz = u.mesh.position.z;
       const d = Math.hypot(ux - px, uz - pz);
@@ -280,12 +259,13 @@ export function createCombat(scene, world, player, audio) {
   // level, and the nearest living police unit (foot or car).
   function escapeInfo() {
     const needed = wanted > 0 ? escapeNeeded() : 0;
+    const clamped = needed > 0 ? Math.max(0, Math.min(1, escapeTimer / needed)) : 0;
     return {
       escaping: wanted > 0 && !policeCanSee,
       // v6.3 tune: seen again while wanted — the HUD shows SPOTTED!/
       // TERLIHAT! in the same slot as the escape meter.
       spotted: wanted > 0 && policeCanSee,
-      progress: needed > 0 ? Math.max(0, Math.min(1, escapeTimer / needed)) : 0,
+      progress: clamped,
       needed,
       nearestPoliceDist: nearestPoliceDist(),
       // LOS to the nearest living police unit (true = clear, false =
@@ -299,9 +279,12 @@ export function createCombat(scene, world, player, audio) {
   // One thin emissive box per tracer, pooled (10) and reused: a police shot
   // must be SEEN, not just heard — the tracer streaks from the muzzle to
   // the player (or to the miss point) for ~0.09 s. 10 meshes total, shared
-  // by foot police, patrol cars and thugs.
+  // by foot police, patrol cars and thugs. Allocation is a ring: each
+  // shot takes the next slot, so a burst reuses the oldest tracer.
   const TRACER_COUNT = 10;
+  const TRACER_LIFE = 0.09;
   const tracers = [];
+  let tracerCursor = 0;
   function initTracers() {
     if (tracers.length) return;
     const geo = new THREE.BoxGeometry(0.07, 0.07, 1);
@@ -318,17 +301,21 @@ export function createCombat(scene, world, player, audio) {
   const _tracerTo = new THREE.Vector3();
   function fireTracer(fromX, fromY, fromZ, toX, toY, toZ) {
     initTracers();
-    let t = tracers.find((x) => x.life <= 0);
-    if (!t) t = tracers[0];
+    let slot = tracers[tracerCursor];
+    tracerCursor = (tracerCursor + 1) % TRACER_COUNT;
+    if (slot.life > 0) {
+      const idle = tracers.find((x) => x.life <= 0);
+      if (idle) slot = idle;
+    }
     _tracerFrom.set(fromX, fromY, fromZ);
     _tracerTo.set(toX, toY, toZ);
     const dist = _tracerFrom.distanceTo(_tracerTo);
     if (dist < 0.5) return;
-    t.mesh.position.copy(_tracerFrom).lerp(_tracerTo, 0.5);
-    t.mesh.lookAt(_tracerTo);
-    t.mesh.scale.set(1, 1, dist);
-    t.mesh.visible = true;
-    t.life = 0.09;
+    slot.mesh.position.copy(_tracerFrom).lerp(_tracerTo, 0.5);
+    slot.mesh.lookAt(_tracerTo);
+    slot.mesh.scale.set(1, 1, dist);
+    slot.mesh.visible = true;
+    slot.life = TRACER_LIFE;
   }
   function updateTracers(dt) {
     for (const t of tracers) {
@@ -370,9 +357,14 @@ export function createCombat(scene, world, player, audio) {
     mesh.position.set(x, 0, z);
     scene.add(mesh);
     const e = {
-      mesh, hp: opts.hp || 100, kind: opts.kind || 'thug',
-      shootTimer: 1 + Math.random(), speed: opts.speed || 4.5,
-      damage: opts.damage || 8, range: opts.range || 42, dead: false,
+      mesh,
+      hp: opts.hp || 100,
+      kind: opts.kind || 'thug',
+      shootTimer: 1 + Math.random(),
+      speed: opts.speed || 4.5,
+      damage: opts.damage || 8,
+      range: opts.range || 42,
+      dead: false,
       mission: !!opts.mission,
     };
     enemies.push(e);
@@ -383,12 +375,13 @@ export function createCombat(scene, world, player, audio) {
   // and fire interval all escalate with the wanted level. Defaults match
   // the old flat values (6.5 m/s, 6 dmg, 30 m range) at 1 star.
   function footStats(stars) {
+    const step = stars - 1;
     return {
-      speed: 7 + 0.5 * (stars - 1), // 7.0 -> 9.0 m/s (player runs 11)
+      speed: 7 + 0.5 * step, // 7.0 -> 9.0 m/s (player runs 11)
       damage: 6 + (stars >= 3 ? 2 : 0) + (stars >= 5 ? 2 : 0), // 6 / 8 / 10
       range: 30,
-      hitChance: 0.35 + 0.05 * (stars - 1), // 0.35 -> 0.55
-      shootInterval: 1.3 - 0.1 * (stars - 1), // 1.3 -> 0.9 s
+      hitChance: 0.35 + 0.05 * step, // 0.35 -> 0.55
+      shootInterval: 1.3 - 0.1 * step, // 1.3 -> 0.9 s
     };
   }
 
@@ -406,7 +399,10 @@ export function createCombat(scene, world, player, audio) {
     mesh.position.set(x, 0, z);
     scene.add(mesh);
     const p = {
-      mesh, hp: 100, kind: 'police', shootTimer: 1.5,
+      mesh,
+      hp: 100,
+      kind: 'police',
+      shootTimer: 1.5,
       speed: opts.speed || st.speed,
       damage: opts.damage || st.damage,
       range: opts.range || st.range,
@@ -453,13 +449,20 @@ export function createCombat(scene, world, player, audio) {
   let heliAngle = 0;
   let heliY = HELI_Y;
 
-  function makeHeliMesh() {
+  // A painted-box collector: every part of a merged vehicle mesh is a
+  // box with a solid colour; the collector paints each box's vertices
+  // and keeps the list for one fused geometry.
+  function paintedParts() {
     const geos = [];
     const paint = (g, hex) => {
       const c = new THREE.Color(hex);
       const n = g.attributes.position.count;
       const arr = new Float32Array(n * 3);
-      for (let i = 0; i < n; i++) { arr[i * 3] = c.r; arr[i * 3 + 1] = c.g; arr[i * 3 + 2] = c.b; }
+      for (let i = 0; i < n; i++) {
+        arr[i * 3] = c.r;
+        arr[i * 3 + 1] = c.g;
+        arr[i * 3 + 2] = c.b;
+      }
       g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
       geos.push(g);
     };
@@ -468,21 +471,29 @@ export function createCombat(scene, world, player, audio) {
       g.translate(x, y, z);
       paint(g, hex);
     };
-    box(2.4, 1.3, 4.6, 0, 0, 0, 0x1e3a5f); // police-blue body
-    box(2.0, 0.9, 1.2, 0, 0.1, 1.9, 0x0f172a); // dark nose glass
-    box(2.44, 0.35, 3.0, 0, 0.15, -0.2, 0xf8fafc); // white stripe
-    box(0.8, 0.8, 4.2, 0, 0.2, -4.2, 0x1e3a5f); // tail boom
-    box(0.15, 1.6, 1.0, 0, 0.9, -6.0, 0x1e3a5f); // tail fin
-    box(0.12, 1.6, 0.3, -0.55, 0.3, -5.8, 0x94a3b8); // tail rotor
-    box(0.3, 0.5, 0.3, 0, 0.85, 0, 0x334155); // rotor mast
-    box(8.0, 0.1, 0.6, 0, 1.15, 0, 0x334155); // main rotor (static)
-    box(0.15, 0.15, 3.6, -1.0, -0.95, 0, 0x475569); // skids
-    box(0.15, 0.15, 3.6, 1.0, -0.95, 0, 0x475569);
-    box(0.15, 0.35, 0.15, -1.0, -0.75, 1.2, 0x475569); // skid struts
-    box(0.15, 0.35, 0.15, 1.0, -0.75, 1.2, 0x475569);
-    box(0.15, 0.35, 0.15, -1.0, -0.75, -1.2, 0x475569);
-    box(0.15, 0.35, 0.15, 1.0, -0.75, -1.2, 0x475569);
-    box(0.6, 0.3, 0.4, 0, -0.7, 1.6, 0xfff7cc); // searchlight lens (unlit, bright)
+    return { geos, box };
+  }
+
+  function makeHeliMesh() {
+    const { geos, box } = paintedParts();
+    const parts = [
+      [2.4, 1.3, 4.6, 0, 0, 0, 0x1e3a5f], // police-blue body
+      [2.0, 0.9, 1.2, 0, 0.1, 1.9, 0x0f172a], // dark nose glass
+      [2.44, 0.35, 3.0, 0, 0.15, -0.2, 0xf8fafc], // white stripe
+      [0.8, 0.8, 4.2, 0, 0.2, -4.2, 0x1e3a5f], // tail boom
+      [0.15, 1.6, 1.0, 0, 0.9, -6.0, 0x1e3a5f], // tail fin
+      [0.12, 1.6, 0.3, -0.55, 0.3, -5.8, 0x94a3b8], // tail rotor
+      [0.3, 0.5, 0.3, 0, 0.85, 0, 0x334155], // rotor mast
+      [8.0, 0.1, 0.6, 0, 1.15, 0, 0x334155], // main rotor (static)
+      [0.15, 0.15, 3.6, -1.0, -0.95, 0, 0x475569], // skids
+      [0.15, 0.15, 3.6, 1.0, -0.95, 0, 0x475569],
+      [0.15, 0.35, 0.15, -1.0, -0.75, 1.2, 0x475569], // skid struts
+      [0.15, 0.35, 0.15, 1.0, -0.75, 1.2, 0x475569],
+      [0.15, 0.35, 0.15, -1.0, -0.75, -1.2, 0x475569],
+      [0.15, 0.35, 0.15, 1.0, -0.75, -1.2, 0x475569],
+      [0.6, 0.3, 0.4, 0, -0.7, 1.6, 0xfff7cc], // searchlight lens (unlit, bright)
+    ];
+    for (const p of parts) box(...p);
     const group = new THREE.Group();
     group.userData.isHeli = true; // probe hook: identify the heli in the scene
     group.add(new THREE.Mesh(
@@ -506,94 +517,91 @@ export function createCombat(scene, world, player, audio) {
   }
 
   function updateHeli(dt) {
-    if (wanted >= 4) {
-      if (!heli) {
-        heli = makeHeliMesh();
-        scene.add(heli);
-        // Spawn in front of the player so it is seen at once: the orbit
-        // offset points along the player's heading.
-        heliAngle = Math.PI / 2 - player.heading;
-        heliY = HELI_Y;
+    if (wanted < 4) {
+      if (heli) {
+        scene.remove(heli);
+        heli = null;
       }
-      heliAngle += HELI_SPEED * dt;
-      const px = player.group.position.x;
-      const pz = player.group.position.z;
-      const hx = px + Math.cos(heliAngle) * HELI_R;
-      const hz = pz + Math.sin(heliAngle) * HELI_R;
-      // Roof avoidance: tallestAt is a step function — at a building edge
-      // the roof jumps from 0 to 58 m instantly, and no climb rate can
-      // react in time. So look ahead along the orbit (up to 3 s) and climb
-      // BEFORE reaching a tall roof; the max over the arc ahead sets the
-      // target altitude. Climb fast, sink gently.
-      let targetY = HELI_Y;
-      for (let k = 0; k <= 6; k += 1) {
-        const a = heliAngle + (k / 6) * HELI_SPEED * 3;
-        const roof = (world.tallestAt ? world.tallestAt(px + Math.cos(a) * HELI_R, pz + Math.sin(a) * HELI_R) : 0) || 0;
-        targetY = Math.max(targetY, roof + 6);
-      }
-      const rate = targetY > heliY ? 18 : 6;
-      heliY += Math.max(-rate * dt, Math.min(rate * dt, targetY - heliY));
-      heli.position.set(hx, heliY + Math.sin(gameTime * 1.3) * 0.8, hz);
-      heli.rotation.y = Math.atan2(px - hx, pz - hz);
-      // Searchlight cone: stretch it so the base stays on the ground
-      // (apex at the heli, base at y=0). Cone geometry is HELI_Y tall,
-      // centred — scale + offset put the apex at the group origin.
-      const cone = heli.userData.cone;
-      if (cone) {
-        const s = heliY / HELI_Y;
-        cone.scale.set(1, s, 1);
-        cone.position.y = -HELI_Y * s / 2;
-      }
-    } else if (heli) {
-      scene.remove(heli);
-      heli = null;
+      return;
+    }
+    if (!heli) {
+      heli = makeHeliMesh();
+      scene.add(heli);
+      // Spawn in front of the player so it is seen at once: the orbit
+      // offset points along the player's heading.
+      heliAngle = Math.PI / 2 - player.heading;
+      heliY = HELI_Y;
+    }
+    heliAngle += HELI_SPEED * dt;
+    const px = player.group.position.x;
+    const pz = player.group.position.z;
+    const hx = px + Math.cos(heliAngle) * HELI_R;
+    const hz = pz + Math.sin(heliAngle) * HELI_R;
+    // Roof avoidance: tallestAt is a step function — at a building edge
+    // the roof jumps from 0 to 58 m instantly, and no climb rate can
+    // react in time. So look ahead along the orbit (up to 3 s) and climb
+    // BEFORE reaching a tall roof; the max over the arc ahead sets the
+    // target altitude. Climb fast, sink gently.
+    let targetY = HELI_Y;
+    for (let k = 0; k <= 6; k += 1) {
+      const a = heliAngle + (k / 6) * HELI_SPEED * 3;
+      const orbitX = px + Math.cos(a) * HELI_R;
+      const orbitZ = pz + Math.sin(a) * HELI_R;
+      const roof = (world.tallestAt ? world.tallestAt(orbitX, orbitZ) : 0) || 0;
+      targetY = Math.max(targetY, roof + 6);
+    }
+    const rate = targetY > heliY ? 18 : 6;
+    heliY += Math.max(-rate * dt, Math.min(rate * dt, targetY - heliY));
+    heli.position.set(hx, heliY + Math.sin(gameTime * 1.3) * 0.8, hz);
+    heli.rotation.y = Math.atan2(px - hx, pz - hz);
+    // Searchlight cone: stretch it so the base stays on the ground
+    // (apex at the heli, base at y=0). Cone geometry is HELI_Y tall,
+    // centred — scale + offset put the apex at the group origin.
+    const cone = heli.userData.cone;
+    if (cone) {
+      const s = heliY / HELI_Y;
+      cone.scale.set(1, s, 1);
+      cone.position.y = -HELI_Y * s / 2;
     }
   }
   const CAR_STATS = { hp: 80, range: 48, damage: 8, hitChance: 0.4, shootInterval: 0.9, ramDamage: 8 };
 
   function mergeCarGeos(geos) {
-    let vCount = 0;
-    let iCount = 0;
-    for (const g of geos) { vCount += g.attributes.position.count; iCount += g.index.count; }
-    const pos = new Float32Array(vCount * 3);
-    const nor = new Float32Array(vCount * 3);
-    const col = new Float32Array(vCount * 3);
-    const idx = new Uint32Array(iCount);
-    let vOff = 0;
-    let iOff = 0;
-    for (const g of geos) {
-      pos.set(g.attributes.position.array, vOff * 3);
-      nor.set(g.attributes.normal.array, vOff * 3);
-      col.set(g.attributes.color.array, vOff * 3);
-      const src = g.index.array;
-      for (let i = 0; i < src.length; i++) idx[iOff + i] = src[i] + vOff;
-      vOff += g.attributes.position.count;
-      iOff += src.length;
+    const blocks = geos.map((g) => ({
+      verts: g.attributes.position.count,
+      tris: g.index.count,
+      pos: g.attributes.position.array,
+      nor: g.attributes.normal.array,
+      col: g.attributes.color.array,
+      idx: g.index.array,
+    }));
+    const totalVerts = blocks.reduce((sum, b) => sum + b.verts, 0);
+    const totalTris = blocks.reduce((sum, b) => sum + b.tris, 0);
+    const pos = new Float32Array(totalVerts * 3);
+    const nor = new Float32Array(totalVerts * 3);
+    const col = new Float32Array(totalVerts * 3);
+    const idx = new Uint32Array(totalTris);
+    let vBase = 0;
+    let iBase = 0;
+    for (const b of blocks) {
+      pos.set(b.pos, vBase * 3);
+      nor.set(b.nor, vBase * 3);
+      col.set(b.col, vBase * 3);
+      for (let k = 0; k < b.tris; k++) idx[iBase + k] = b.idx[k] + vBase;
+      vBase += b.verts;
+      iBase += b.tris;
     }
-    const out = new THREE.BufferGeometry();
-    out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-    out.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    out.setIndex(new THREE.BufferAttribute(idx, 1));
-    out.computeBoundingSphere();
-    return out;
+    const fused = new THREE.BufferGeometry();
+    fused.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    fused.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+    fused.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    fused.setIndex(new THREE.BufferAttribute(idx, 1));
+    fused.computeBoundingSphere();
+    return fused;
   }
 
   function makePoliceCarMesh() {
-    const geos = [];
-    const paint = (g, hex) => {
-      const c = new THREE.Color(hex);
-      const n = g.attributes.position.count;
-      const arr = new Float32Array(n * 3);
-      for (let i = 0; i < n; i++) { arr[i * 3] = c.r; arr[i * 3 + 1] = c.g; arr[i * 3 + 2] = c.b; }
-      g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
-      geos.push(g);
-    };
-    const box = (w, h, d, x, y, z, hex) => {
-      const g = new THREE.BoxGeometry(w, h, d);
-      g.translate(x, y, z);
-      paint(g, hex);
-    };
+    const { geos, box } = paintedParts();
     const bodyLen = 4.6;
     box(2.0, 0.7, bodyLen, 0, 0.55, 0, 0x111827); // black body
     box(1.7, 0.6, bodyLen * 0.45, 0, 1.15, -bodyLen * 0.05, 0x111827); // cabin
@@ -685,6 +693,25 @@ export function createCombat(scene, world, player, audio) {
     }
   }
 
+  // Pick the chase waypoint for this frame: the next path node, or the
+  // player directly once the path is exhausted. Nodes closer than 5 m
+  // are consumed, and stale leading nodes behind the chase are trimmed
+  // first (see trimChasePath). When the last node is consumed, the
+  // waypoint stays that node (not the player) — the caller drives at
+  // the player only once the path is genuinely exhausted.
+  function chaseWaypoint(c, px, pz) {
+    trimChasePath(c, px, pz);
+    if (!c.path || c.pathIdx >= c.path.length) return { x: px, z: pz, atEnd: true };
+    let wp = c.path[c.pathIdx];
+    if (Math.hypot(wp.x - c.mesh.position.x, wp.z - c.mesh.position.z) < 5) {
+      c.pathIdx += 1;
+      trimChasePath(c, px, pz);
+      if (c.pathIdx < c.path.length) wp = c.path[c.pathIdx];
+      else return { x: wp.x, z: wp.z, atEnd: true };
+    }
+    return { x: wp.x, z: wp.z, atEnd: false };
+  }
+
   function updatePoliceCar(c, dt, px, pz, topSpeed) {
     const dist = Math.hypot(px - c.mesh.position.x, pz - c.mesh.position.z);
     const graph = world.roadGraph;
@@ -708,33 +735,23 @@ export function createCombat(scene, world, player, audio) {
       }
       c.stuckT = 0;
     }
-    trimChasePath(c, px, pz);
-    let wx = px;
-    let wz = pz;
-    if (c.path && c.pathIdx < c.path.length) {
-      wx = c.path[c.pathIdx].x;
-      wz = c.path[c.pathIdx].z;
-      if (Math.hypot(wx - c.mesh.position.x, wz - c.mesh.position.z) < 5) {
-        c.pathIdx += 1;
-        trimChasePath(c, px, pz);
-        if (c.pathIdx < c.path.length) { wx = c.path[c.pathIdx].x; wz = c.path[c.pathIdx].z; }
-      }
-    }
+    const wp = chaseWaypoint(c, px, pz);
+    const wx = wp.x;
+    const wz = wp.z;
     // At the end of the path the car drives at the PLAYER, not at the
     // last node: the goal node is only the node nearest the player, and
     // the old code parked the car there while the player kept moving
     // (the "hold ~16 m" braking below still stops it at shooting range).
-    // (wx, wz stay px, pz when pathIdx ran past the end.)
     // Hold on the road once close (speed-aware braking distance).
-    const atEnd = !c.path || c.pathIdx >= c.path.length;
     const dT = Math.hypot(wx - c.mesh.position.x, wz - c.mesh.position.z);
-    const hold = dist < 16 + (c.speed * c.speed) / 104 || (atEnd && dT < 6);
+    const hold = dist < 16 + (c.speed * c.speed) / 104 || (wp.atEnd && dT < 6);
     const targetHeading = Math.atan2(wx - c.mesh.position.x, wz - c.mesh.position.z);
     let diff = targetHeading - c.heading;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
     c.heading += Math.max(-2.5 * dt, Math.min(2.5 * dt, diff));
-    let want = hold ? 0 : topSpeed * (Math.abs(diff) > 0.9 ? 0.35 : Math.abs(diff) > 0.45 ? 0.6 : 1);
+    const turnPenalty = Math.abs(diff) > 0.9 ? 0.35 : Math.abs(diff) > 0.45 ? 0.6 : 1;
+    let want = hold ? 0 : topSpeed * turnPenalty;
     if (c.path && c.pathIdx >= c.path.length - 1) {
       want = Math.min(want, Math.sqrt(104 * Math.max(0, dT - 1)));
     }
@@ -795,6 +812,9 @@ export function createCombat(scene, world, player, audio) {
     const px = player.group.position.x;
     const pz = player.group.position.z;
     const distOf = (u) => Math.hypot(u.mesh.position.x - px, u.mesh.position.z - pz);
+    const foot = police.filter((p) => !p.dead && !p.mission);
+    const cars = policeCars.filter((c) => !c.dead);
+    const sight = CONFIG.wanted.sightRange || 70;
     // The chase is "hot" while any unit is close enough to see the player
     // (sight range): reinforcements spawn near the player. Once EVERY unit
     // is beyond sight, no new units spawn — that is how wanted decays
@@ -802,9 +822,6 @@ export function createCombat(scene, world, player, audio) {
     // drops it on purpose so hiding works). A frozen foot cop 120 m away
     // must NOT keep the chase hot, or fresh cops would spawn next to the
     // player forever.
-    const foot = police.filter((p) => !p.dead && !p.mission);
-    const cars = policeCars.filter((c) => !c.dead);
-    const sight = CONFIG.wanted.sightRange || 70;
     const hot = [...foot, ...cars].some((u) => distOf(u) < sight);
     // Spawn a fresh force only while the chase is hot, or right after the
     // crime that raised wanted (fresh heat brings reinforcements). If the
@@ -821,16 +838,16 @@ export function createCombat(scene, world, player, audio) {
     // (real crimes) and debug.setWanted.
     const spawn = hot || (gameTime - lastCrimeAt < 10);
     // Shrink: when the tier drops (decay), the farthest units leave first.
-    const shrink = (list, want, remove) => {
+    const trimTo = (list, want, remove) => {
       if (list.length <= want) return;
-      const sorted = [...list].sort((a, b) => distOf(b) - distOf(a));
-      for (const u of sorted.slice(want)) remove(u);
+      const farthestFirst = [...list].sort((a, b) => distOf(b) - distOf(a));
+      for (const u of farthestFirst.slice(want)) remove(u);
     };
-    shrink(foot, tier.foot, (u) => {
+    trimTo(foot, tier.foot, (u) => {
       scene.remove(u.mesh);
       police.splice(police.indexOf(u), 1);
     });
-    shrink(cars, tier.cars, (u) => {
+    trimTo(cars, tier.cars, (u) => {
       scene.remove(u.mesh);
       policeCars.splice(policeCars.indexOf(u), 1);
     });
@@ -882,15 +899,9 @@ export function createCombat(scene, world, player, audio) {
   function policeNear(dist) {
     const px = player.group.position.x;
     const pz = player.group.position.z;
-    for (const p of police) {
-      if (p.dead) continue;
-      if (Math.hypot(p.mesh.position.x - px, p.mesh.position.z - pz) < dist) return true;
-    }
-    for (const c of policeCars) {
-      if (c.dead) continue;
-      if (Math.hypot(c.mesh.position.x - px, c.mesh.position.z - pz) < dist) return true;
-    }
-    return false;
+    const close = (u) => !u.dead
+      && Math.hypot(u.mesh.position.x - px, u.mesh.position.z - pz) < dist;
+    return police.some(close) || policeCars.some(close);
   }
 
   function commitCrime(stars) {
@@ -919,18 +930,21 @@ export function createCombat(scene, world, player, audio) {
     const fz = Math.cos(player.heading);
     const mx = px + fx * 0.8; // muzzle, just ahead of Vera
     const mz = pz + fz * 0.8;
+    const killTarget = (t) => {
+      t.hp -= w.damage;
+      if (t.hp <= 0) {
+        t.dead = true;
+        t.mesh.visible = false;
+        commitCrime(2);
+        audio.chime();
+      }
+    };
     // Aim-locked shot (Builder A v4): a locked target is hit directly —
     // the tracer runs muzzle -> target chest, damage is the weapon's full
     // damage every shot, no cone roll, no spread.
     if (aiming && locked && !locked.dead) {
-      locked.hp -= w.damage;
       fireTracer(mx, 1.3, mz, locked.mesh.position.x, 1.2, locked.mesh.position.z);
-      if (locked.hp <= 0) {
-        locked.dead = true;
-        locked.mesh.visible = false;
-        commitCrime(2);
-        audio.chime();
-      }
+      killTarget(locked);
       return true;
     }
     let best = null;
@@ -950,14 +964,8 @@ export function createCombat(scene, world, player, audio) {
       }
     }
     if (best) {
-      best.hp -= w.damage;
       fireTracer(mx, 1.3, mz, best.mesh.position.x, 1.2, best.mesh.position.z);
-      if (best.hp <= 0) {
-        best.dead = true;
-        best.mesh.visible = false;
-        commitCrime(2);
-        audio.chime();
-      }
+      killTarget(best);
     } else {
       // Miss: the tracer still shows where the shot went (range end,
       // straight ahead), so a miss reads as a miss, not a silent nothing.
@@ -975,12 +983,14 @@ export function createCombat(scene, world, player, audio) {
   function updateNpcs(dt, list) {
     const px = player.group.position.x;
     const pz = player.group.position.z;
+    const blocked = (x, z) => world.collides && world.collides(x, z, 0.6);
     for (const e of list) {
       if (e.dead) continue;
       const dx = px - e.mesh.position.x;
       const dz = pz - e.mesh.position.z;
       const dist = Math.hypot(dx, dz);
       if (dist > 90) continue;
+      const facePlayer = () => { e.mesh.rotation.y = Math.atan2(dx, dz); };
       // Chase the player, stop at shooting range. Slide along walls: a
       // straight step into a building used to pin the NPC there forever
       // (the impound guards never reached the player), so fall back to
@@ -988,7 +998,6 @@ export function createCombat(scene, world, player, audio) {
       if (dist > e.range * 0.55) {
         const nx = e.mesh.position.x + (dx / dist) * e.speed * dt;
         const nz = e.mesh.position.z + (dz / dist) * e.speed * dt;
-        const blocked = (x, z) => world.collides && world.collides(x, z, 0.6);
         if (!blocked(nx, nz)) {
           e.mesh.position.x = nx;
           e.mesh.position.z = nz;
@@ -997,29 +1006,29 @@ export function createCombat(scene, world, player, audio) {
         } else if (!blocked(e.mesh.position.x, nz)) {
           e.mesh.position.z = nz;
         }
-        e.mesh.rotation.y = Math.atan2(dx, dz);
-      } else {
-        e.mesh.rotation.y = Math.atan2(dx, dz);
-        e.shootTimer -= dt;
-        if (e.shootTimer <= 0) {
-          e.shootTimer = (e.shootInterval || 1.1) + Math.random() * 0.5;
-          audio.enemyShot();
-          // Hit chance falls with distance; police are worse shots.
-          const hitChance = e.hitChance || (e.kind === 'police' ? 0.35 : 0.45);
-          const mx = e.mesh.position.x;
-          const mz = e.mesh.position.z;
-          if (Math.random() < hitChance * (1 - dist / (e.range * 2))) {
-            // Tracer to the player: the shot is SEEN hitting.
-            fireTracer(mx, 1.3, mz, px, 1.2, pz);
-            player.damage(e.damage);
-            if (player.hp <= 0) {
-              // handled by main.js (mission fail / respawn)
-            }
-          } else {
-            // Tracer to a miss point near the player.
-            fireTracer(mx, 1.3, mz, px + (Math.random() - 0.5) * 4, 1.2, pz + (Math.random() - 0.5) * 4);
-          }
+        facePlayer();
+        continue;
+      }
+      facePlayer();
+      e.shootTimer -= dt;
+      if (e.shootTimer > 0) continue;
+      e.shootTimer = (e.shootInterval || 1.1) + Math.random() * 0.5;
+      audio.enemyShot();
+      // Hit chance falls with distance; police are worse shots.
+      const hitChance = e.hitChance || (e.kind === 'police' ? 0.35 : 0.45);
+      const mx = e.mesh.position.x;
+      const mz = e.mesh.position.z;
+      const hit = Math.random() < hitChance * (1 - dist / (e.range * 2));
+      if (hit) {
+        // Tracer to the player: the shot is SEEN hitting.
+        fireTracer(mx, 1.3, mz, px, 1.2, pz);
+        player.damage(e.damage);
+        if (player.hp <= 0) {
+          // handled by main.js (mission fail / respawn)
         }
+      } else {
+        // Tracer to a miss point near the player.
+        fireTracer(mx, 1.3, mz, px + (Math.random() - 0.5) * 4, 1.2, pz + (Math.random() - 0.5) * 4);
       }
     }
   }
@@ -1163,27 +1172,21 @@ export function createCombat(scene, world, player, audio) {
       // fix). The LOS cache refreshes at most every 0.25 s of game time;
       // a unit spawned since the last refresh is computed once on demand.
       // maintainForce's `hot` below stays distance-based — untouched.
+      const seesPlayer = (u) => {
+        if (u.dead) return false;
+        const d = Math.hypot(u.mesh.position.x - px, u.mesh.position.z - pz);
+        if (d >= sight) return false;
+        let los = losCache.get(u);
+        if (los === undefined) {
+          los = hasLineOfSight(u.mesh.position.x, u.mesh.position.z, px, pz);
+          losCache.set(u, los);
+        }
+        return los;
+      };
       policeCanSee = false;
       if (wanted > 0) {
         if (gameTime - losCacheTime >= 0.25) refreshLos(px, pz);
-        const sees = (u) => {
-          if (u.dead) return false;
-          if (Math.hypot(u.mesh.position.x - px, u.mesh.position.z - pz) >= sight) return false;
-          let los = losCache.get(u);
-          if (los === undefined) {
-            los = hasLineOfSight(u.mesh.position.x, u.mesh.position.z, px, pz);
-            losCache.set(u, los);
-          }
-          return los;
-        };
-        for (const p of police) {
-          if (sees(p)) { policeCanSee = true; break; }
-        }
-        if (!policeCanSee) {
-          for (const c of policeCars) {
-            if (sees(c)) { policeCanSee = true; break; }
-          }
-        }
+        policeCanSee = [...police, ...policeCars].some((u) => seesPlayer(u));
         if (policeCanSee) {
           escapeTimer = 0;
         } else {

@@ -156,6 +156,8 @@ export const MISSION_DEFS = [
 
 export function createMissions(scene, world, ctx) {
   // Beacon: a glowing cylinder + ring marking the current objective.
+  // The cylinder's geometry (radius 1.2, height 30, pink) is what the
+  // harness scans for, so those numbers stay exactly as they are.
   const beaconMat = new THREE.MeshBasicMaterial({ color: 0xf472b6, transparent: true, opacity: 0.55 });
   const beacon = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 30, 16, 1, true), beaconMat);
   beacon.visible = false;
@@ -184,19 +186,23 @@ export function createMissions(scene, world, ctx) {
   function makeGroundCircle(color) {
     const group = new THREE.Group();
     group.visible = false;
-    const discMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false });
+    group.renderOrder = 1;
+    const discMat = new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false,
+    });
     const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 48), discMat);
     disc.rotation.x = -Math.PI / 2;
     disc.position.y = 0.12;
     group.add(disc);
-    const ringMat2 = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false });
-    const edge = new THREE.Mesh(new THREE.RingGeometry(0.88, 1, 48), ringMat2);
+    const edgeMat = new THREE.MeshBasicMaterial({
+      color, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false,
+    });
+    const edge = new THREE.Mesh(new THREE.RingGeometry(0.88, 1, 48), edgeMat);
     edge.rotation.x = -Math.PI / 2;
     edge.position.y = 0.14;
     group.add(edge);
-    group.renderOrder = 1;
     scene.add(group);
-    return { group, discMat, ringMat: ringMat2 };
+    return { group, discMat, ringMat: edgeMat };
   }
   const startCircle = makeGroundCircle(0xffd400); // gold = "start here"
   const targetCircle = makeGroundCircle(0x22ff88); // green = "go here / done here"
@@ -211,13 +217,10 @@ export function createMissions(scene, world, ctx) {
   function pulseCircles(dt) {
     circleTime += dt;
     const pulse = 0.5 + 0.5 * Math.sin(circleTime * 3);
-    if (startCircle.group.visible) {
-      startCircle.discMat.opacity = 0.16 + 0.12 * pulse;
-      startCircle.ringMat.opacity = 0.65 + 0.35 * pulse;
-    }
-    if (targetCircle.group.visible) {
-      targetCircle.discMat.opacity = 0.16 + 0.12 * pulse;
-      targetCircle.ringMat.opacity = 0.65 + 0.35 * pulse;
+    for (const c of [startCircle, targetCircle]) {
+      if (!c.group.visible) continue;
+      c.discMat.opacity = 0.16 + 0.12 * pulse;
+      c.ringMat.opacity = 0.65 + 0.35 * pulse;
     }
   }
 
@@ -237,17 +240,23 @@ export function createMissions(scene, world, ctx) {
   markerGroup.add(markerDiamond);
   let markerSprite = null;
   try {
-    const c = document.createElement('canvas');
-    c.width = 128; c.height = 128;
-    const g = c.getContext('2d');
-    g.beginPath(); g.arc(64, 64, 58, 0, Math.PI * 2);
-    g.fillStyle = '#f472b6'; g.fill();
-    g.lineWidth = 6; g.strokeStyle = '#ffffff'; g.stroke();
+    const badge = document.createElement('canvas');
+    badge.width = 128;
+    badge.height = 128;
+    const g = badge.getContext('2d');
+    g.beginPath();
+    g.arc(64, 64, 58, 0, Math.PI * 2);
+    g.fillStyle = '#f472b6';
+    g.fill();
+    g.lineWidth = 6;
+    g.strokeStyle = '#ffffff';
+    g.stroke();
     g.fillStyle = '#ffffff';
     g.font = 'bold 88px system-ui, sans-serif';
-    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
     g.fillText('!', 64, 68);
-    const tex = new THREE.CanvasTexture(c);
+    const tex = new THREE.CanvasTexture(badge);
     markerSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
     // Small badge floating ABOVE the diamond (not on top of it): the first
     // version used scale 7 at the same centre and swallowed the diamond.
@@ -311,11 +320,23 @@ export function createMissions(scene, world, ctx) {
   // player can never reach. findOpenGround (B's API, scaffold fallback is
   // identity) moves it to the nearest walkable spot.
   function snap(x, z, maxR = 40) {
+    const finder = ctx.world && ctx.world.findOpenGround;
+    if (!finder) return { x, z };
     try {
-      const g = ctx.world && ctx.world.findOpenGround ? ctx.world.findOpenGround(x, z, maxR) : null;
+      const g = finder(x, z, maxR);
       if (g && typeof g.x === 'number') return { x: g.x, z: g.z };
     } catch { /* keep the raw point */ }
     return { x, z };
+  }
+
+  // Nearest road point for (x, z), or null when the graph cannot answer.
+  function roadSnap(x, z) {
+    try {
+      const rg = ctx.world && ctx.world.roadGraph;
+      if (!rg || !rg.nearestOnRoad) return null;
+      const n = rg.nearestOnRoad(x, z);
+      return (n && typeof n.x === 'number') ? { x: n.x, z: n.z, dist: n.dist } : null;
+    } catch { return null; }
   }
 
   // Snap a GOTO target so a CAR can trigger it (v6.6 item 3). The
@@ -331,16 +352,9 @@ export function createMissions(scene, world, ctx) {
   // moving it onto land would strand the boat.
   function snapDrivable(x, z, radius) {
     const spot = snap(x, z);
-    try {
-      if (ctx.world && ctx.world.isInWater && ctx.world.isInWater(spot.x, spot.z)) return spot;
-      const rg = ctx.world && ctx.world.roadGraph;
-      if (rg && rg.nearestOnRoad) {
-        const n = rg.nearestOnRoad(spot.x, spot.z);
-        if (n && typeof n.x === 'number' && n.dist > (radius || 10) - 2) {
-          return { x: n.x, z: n.z };
-        }
-      }
-    } catch { /* keep the snapped spot */ }
+    if (ctx.world && ctx.world.isInWater && ctx.world.isInWater(spot.x, spot.z)) return spot;
+    const n = roadSnap(spot.x, spot.z);
+    if (n && n.dist > (radius || 10) - 2) return { x: n.x, z: n.z };
     return spot;
   }
 
@@ -360,17 +374,9 @@ export function createMissions(scene, world, ctx) {
       // parked on the nearest road (not inside a block) and the stage target
       // IS the car, so the player walks straight onto it (E enters within 6 m).
       const spot = snap(stage.x, stage.z);
-      let carSpot = spot;
       // Cars park on the nearest road; boats stay in the water.
-      if (stage.kind !== 'boat') {
-        try {
-          const rg = ctx.world && ctx.world.roadGraph;
-          if (rg && rg.nearestOnRoad) {
-            const onRoad = rg.nearestOnRoad(spot.x, spot.z);
-            if (onRoad && typeof onRoad.x === 'number') carSpot = { x: onRoad.x, z: onRoad.z };
-          }
-        } catch { /* keep the snapped spot */ }
-      }
+      const onRoad = stage.kind === 'boat' ? null : roadSnap(spot.x, spot.z);
+      const carSpot = onRoad || spot;
       stageState.tx = carSpot.x;
       stageState.tz = carSpot.z;
       const near = ctx.vehicles.nearestVehicle(carSpot.x, carSpot.z, 25);
@@ -379,8 +385,9 @@ export function createMissions(scene, world, ctx) {
       // 22 cars on the road that stopped being a rare fluke. A moving car
       // of the right kind nearby means a fresh mission car is spawned.
       if (!near || near.kind !== stage.kind || !near.parked) {
-        const v = ctx.vehicles.addVehicle(stage.kind, 0xf59e0b, carSpot.x, carSpot.z, 0, { parked: true, missionCar: true });
-        stageState.missionVehicle = v;
+        stageState.missionVehicle = ctx.vehicles.addVehicle(
+          stage.kind, 0xf59e0b, carSpot.x, carSpot.z, 0, { parked: true, missionCar: true },
+        );
       } else {
         stageState.missionVehicle = near;
       }
@@ -391,14 +398,8 @@ export function createMissions(scene, world, ctx) {
       // just open ground — (0,300) sits on the Polsek Beach plot, and open
       // ground next to it wedges the car against the station wall.
       stageState.checkpoints = stage.checkpoints.map((cp) => {
-        try {
-          const rg = ctx.world && ctx.world.roadGraph;
-          if (rg && rg.nearestOnRoad) {
-            const p = rg.nearestOnRoad(cp.x, cp.z);
-            if (p && typeof p.x === 'number') return { x: p.x, z: p.z };
-          }
-        } catch { /* fall through to the ground snap */ }
-        return snap(cp.x, cp.z);
+        const onRoad = roadSnap(cp.x, cp.z);
+        return onRoad ? { x: onRoad.x, z: onRoad.z } : snap(cp.x, cp.z);
       });
     } else if (stage.type === 'hold') {
       stageState.progress = 0;
@@ -424,12 +425,14 @@ export function createMissions(scene, world, ctx) {
     const stage = currentStage();
     if (!stage) return null;
     if (stage.type === 'race') {
-      const cp = (stageState.checkpoints || stage.checkpoints)[stageState.cpIndex || 0];
+      const list = stageState.checkpoints || stage.checkpoints;
+      const cp = list[stageState.cpIndex || 0];
       return cp ? { x: cp.x, z: cp.z } : null;
     }
     if (stage.type === 'kill') {
       const alive = (stageState.spawned || []).find((e) => !e.dead);
-      return alive ? { x: alive.mesh.position.x, z: alive.mesh.position.z } : { x: stage.spawn[0].x, z: stage.spawn[0].z };
+      if (alive) return { x: alive.mesh.position.x, z: alive.mesh.position.z };
+      return { x: stage.spawn[0].x, z: stage.spawn[0].z };
     }
     if (stage.type === 'evade') {
       // No location: the objective is to stay alive/unseen for N seconds.
@@ -494,7 +497,6 @@ export function createMissions(scene, world, ctx) {
   }
 
   function advanceStage() {
-    const stage = currentStage();
     ctx.audio.chime();
     stageIndex += 1;
     const def = currentDef();
@@ -521,23 +523,15 @@ export function createMissions(scene, world, ctx) {
   function startPointFor(def) {
     const s0 = def.stages[0];
     if (!s0) return null;
-    let raw = null;
     if (s0.type === 'race') {
       const cp = s0.checkpoints[0];
       if (!cp) return null;
-      try {
-        const rg = ctx.world && ctx.world.roadGraph;
-        if (rg && rg.nearestOnRoad) {
-          const p = rg.nearestOnRoad(cp.x, cp.z);
-          if (p && typeof p.x === 'number') raw = { x: p.x, z: p.z };
-        }
-      } catch { /* fall through to the ground snap */ }
-      if (!raw) raw = { x: cp.x, z: cp.z };
+      const onRoad = roadSnap(cp.x, cp.z);
+      const raw = onRoad || { x: cp.x, z: cp.z };
       const p = snap(raw.x, raw.z);
       return { x: p.x, z: p.z, radius: 12 };
     }
-    if (s0.type === 'kill') raw = s0.spawn[0];
-    else raw = { x: s0.x, z: s0.z };
+    const raw = s0.type === 'kill' ? s0.spawn[0] : { x: s0.x, z: s0.z };
     if (!raw || typeof raw.x !== 'number') return null;
     const p = snap(raw.x, raw.z);
     let radius = 12;
@@ -556,17 +550,13 @@ export function createMissions(scene, world, ctx) {
   // so this branch stops running until the mission ends.
   function updateStartCircle() {
     const avail = (status !== 'active' && status !== 'complete') ? currentDef() : null;
-    if (!avail || sideJob) {
+    const hide = () => {
       startCircle.group.visible = false;
       startCircleState = null;
-      return;
-    }
+    };
+    if (!avail || sideJob) { hide(); return; }
     const sp = startPointFor(avail);
-    if (!sp) {
-      startCircle.group.visible = false;
-      startCircleState = null;
-      return;
-    }
+    if (!sp) { hide(); return; }
     showCircle(startCircle, sp.x, sp.z, sp.radius);
     startCircleState = { x: sp.x, z: sp.z, radius: sp.radius, missionId: avail.id };
     const d = distTo(sp.x, sp.z);
@@ -584,21 +574,22 @@ export function createMissions(scene, world, ctx) {
   // live stageTarget (kill targets move, race checkpoints advance).
   // Evade stages have no location: no circle, like the beacon.
   function updateTargetCircle() {
-    if (status !== 'active') {
+    const hide = () => {
       targetCircle.group.visible = false;
       targetCircleState = null;
-      return;
-    }
+    };
+    if (status !== 'active') { hide(); return; }
     const stage = currentStage();
     const t = stage ? stageTarget() : null;
-    if (!stage || !t) {
-      targetCircle.group.visible = false;
-      targetCircleState = null;
-      return;
-    }
-    let radius = 10;
-    if (stage.type === 'goto' || stage.type === 'hold' || stage.type === 'enterVehicle') radius = stage.radius || 10;
-    else if (stage.type === 'race' || stage.type === 'kill') radius = 12;
+    if (!stage || !t) { hide(); return; }
+    const radiusByType = {
+      goto: stage.radius || 10,
+      hold: stage.radius || 10,
+      enterVehicle: stage.radius || 10,
+      race: 12,
+      kill: 12,
+    };
+    const radius = radiusByType[stage.type] || 10;
     showCircle(targetCircle, t.x, t.z, radius);
     targetCircleState = { x: t.x, z: t.z, radius };
   }
@@ -607,9 +598,11 @@ export function createMissions(scene, world, ctx) {
     if (status !== 'active') return;
     const stage = currentStage();
     if (!stage) return;
-    const p = ctx.player.group.position;
+    const targetAt = (x, z) => distTo(x, z);
     if (stage.type === 'goto') {
-      if (distTo(stageState.tx ?? stage.x, stageState.tz ?? stage.z) < stage.radius) {
+      const tx = stageState.tx ?? stage.x;
+      const tz = stageState.tz ?? stage.z;
+      if (targetAt(tx, tz) < stage.radius) {
         if (stage.wantedOnArrive) ctx.combat.setWanted(stage.wantedOnArrive);
         advanceStage();
       }
@@ -619,7 +612,9 @@ export function createMissions(scene, world, ctx) {
       ctx.onObjective(`${stage.text.split(' (')[0]} (${killed}/${stage.count})`);
       if (killed >= stage.count) advanceStage();
     } else if (stage.type === 'hold') {
-      if (distTo(stageState.tx ?? stage.x, stageState.tz ?? stage.z) < stage.radius) {
+      const tx = stageState.tx ?? stage.x;
+      const tz = stageState.tz ?? stage.z;
+      if (targetAt(tx, tz) < stage.radius) {
         stageState.progress += dt;
         ctx.onObjective(`${stage.text} — ${Math.ceil(stage.seconds - stageState.progress)}s`);
         if (stageState.progress >= stage.seconds) advanceStage();
@@ -630,18 +625,19 @@ export function createMissions(scene, world, ctx) {
       if (ctx.isDriving()) advanceStage();
     } else if (stage.type === 'race') {
       stageState.timeLeft -= dt;
-      const cp = (stageState.checkpoints || stage.checkpoints)[stageState.cpIndex];
-      if (cp && distTo(cp.x, cp.z) < 12) {
+      const list = stageState.checkpoints || stage.checkpoints;
+      const cp = list[stageState.cpIndex];
+      if (cp && targetAt(cp.x, cp.z) < 12) {
         stageState.cpIndex += 1;
         ctx.audio.chime();
-        if (stageState.cpIndex >= (stageState.checkpoints || stage.checkpoints).length) {
+        if (stageState.cpIndex >= list.length) {
           advanceStage();
           return;
         }
-        const next = (stageState.checkpoints || stage.checkpoints)[stageState.cpIndex];
+        const next = list[stageState.cpIndex];
         placeBeacon(next.x, next.z);
       }
-      ctx.onObjective(`Race: checkpoint ${stageState.cpIndex + 1}/${(stageState.checkpoints || stage.checkpoints).length} — ${Math.ceil(stageState.timeLeft)}s left`);
+      ctx.onObjective(`Race: checkpoint ${stageState.cpIndex + 1}/${list.length} — ${Math.ceil(stageState.timeLeft)}s left`);
       if (stageState.timeLeft <= 0) failMission('Out of time');
     } else if (stage.type === 'evade') {
       // v6.5 fix: the countdown runs ONLY while no police unit can see
@@ -679,12 +675,21 @@ export function createMissions(scene, world, ctx) {
   }
 
   // ---- Side jobs ----
+  function finishSideJob(message, pay) {
+    if (pay) {
+      ctx.addMoney(pay);
+      ctx.audio.cash();
+    }
+    ctx.onMessage(message);
+    sideJob = null;
+    retargetBeaconAfterSideJob();
+  }
+
   function startSideJob(kind) {
     if (sideJob) {
       ctx.onMessage('Finish the current job first.');
       return null;
     }
-    const p = ctx.player.group.position;
     if (kind === 'taxi') {
       // v6.6 item 3: the pickup (-500,200) is 40 m from the nearest
       // road, so a car could never trigger it (radius 10). Snap both
@@ -701,19 +706,12 @@ export function createMissions(scene, world, ctx) {
       placeBeacon(sideJob.to.x, sideJob.to.z);
       ctx.onObjective('Package: deliver to South Beach in 120s');
     } else if (kind === 'race') {
-      const snapRoad = (x, z) => {
-        try {
-          const rg = ctx.world && ctx.world.roadGraph;
-          if (rg && rg.nearestOnRoad) {
-            const p = rg.nearestOnRoad(x, z);
-            if (p && typeof p.x === 'number') return { x: p.x, z: p.z };
-          }
-        } catch { /* fall through */ }
-        return { x, z };
-      };
       sideJob = {
         kind, stage: 'race', cpIndex: 0, timeLeft: 90, pay: 800,
-        checkpoints: [{ x: 200, z: 150 }, { x: -200, z: -150 }, { x: 0, z: 0 }].map((cp) => snapRoad(cp.x, cp.z)),
+        checkpoints: [{ x: 200, z: 150 }, { x: -200, z: -150 }, { x: 0, z: 0 }].map((cp) => {
+          const onRoad = roadSnap(cp.x, cp.z);
+          return onRoad ? { x: onRoad.x, z: onRoad.z } : { x: cp.x, z: cp.z };
+        }),
       };
       placeBeacon(sideJob.checkpoints[0].x, sideJob.checkpoints[0].z);
       ctx.onObjective('Street race: 3 checkpoints in 90s');
@@ -725,30 +723,22 @@ export function createMissions(scene, world, ctx) {
   function updateSideJob(dt) {
     if (!sideJob) return;
     const p = ctx.player.group.position;
+    const near = (x, z, r) => Math.hypot(p.x - x, p.z - z) < r;
     if (sideJob.kind === 'taxi') {
       const target = sideJob.stage === 'pickup' ? sideJob.from : sideJob.to;
-      if (Math.hypot(p.x - target.x, p.z - target.z) < 10) {
-        if (sideJob.stage === 'pickup') {
-          sideJob.stage = 'dropoff';
-          placeBeacon(sideJob.to.x, sideJob.to.z);
-          ctx.onObjective('Taxi: drop the fare at Downtown');
-        } else {
-          ctx.addMoney(sideJob.pay);
-          ctx.audio.cash();
-          ctx.onMessage(`Taxi done — +$${sideJob.pay}`);
-          sideJob = null;
-          retargetBeaconAfterSideJob();
-        }
+      if (!near(target.x, target.z, 10)) return;
+      if (sideJob.stage === 'pickup') {
+        sideJob.stage = 'dropoff';
+        placeBeacon(sideJob.to.x, sideJob.to.z);
+        ctx.onObjective('Taxi: drop the fare at Downtown');
+      } else {
+        finishSideJob(`Taxi done — +$${sideJob.pay}`, sideJob.pay);
       }
     } else if (sideJob.kind === 'package') {
       sideJob.timeLeft -= dt;
       ctx.onObjective(`Package: South Beach — ${Math.ceil(sideJob.timeLeft)}s left`);
-      if (Math.hypot(p.x - sideJob.to.x, p.z - sideJob.to.z) < 10) {
-        ctx.addMoney(sideJob.pay);
-        ctx.audio.cash();
-        ctx.onMessage(`Package delivered — +$${sideJob.pay}`);
-        sideJob = null;
-        retargetBeaconAfterSideJob();
+      if (near(sideJob.to.x, sideJob.to.z, 10)) {
+        finishSideJob(`Package delivered — +$${sideJob.pay}`, sideJob.pay);
       } else if (sideJob.timeLeft <= 0) {
         ctx.onMessage('Package job failed — too slow.');
         sideJob = null;
@@ -757,15 +747,11 @@ export function createMissions(scene, world, ctx) {
     } else if (sideJob.kind === 'race') {
       sideJob.timeLeft -= dt;
       const cp = sideJob.checkpoints[sideJob.cpIndex];
-      if (cp && Math.hypot(p.x - cp.x, p.z - cp.z) < 12) {
+      if (cp && near(cp.x, cp.z, 12)) {
         sideJob.cpIndex += 1;
         ctx.audio.chime();
         if (sideJob.cpIndex >= sideJob.checkpoints.length) {
-          ctx.addMoney(sideJob.pay);
-          ctx.audio.cash();
-          ctx.onMessage(`Race won — +$${sideJob.pay}`);
-          sideJob = null;
-          retargetBeaconAfterSideJob();
+          finishSideJob(`Race won — +$${sideJob.pay}`, sideJob.pay);
           return;
         }
         placeBeacon(sideJob.checkpoints[sideJob.cpIndex].x, sideJob.checkpoints[sideJob.cpIndex].z);

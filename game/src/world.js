@@ -23,62 +23,73 @@ import {
   mulberry32, randRange, pick,
 } from './data.js';
 
-// Merge indexed BufferGeometries (position/normal/uv) into one geometry.
+// Fuse indexed BufferGeometries (position/normal/uv) into a single
+// geometry. Layouts are discovered per input: every geometry contributes
+// its own vertex block, and its index block is shifted by the running
+// vertex offset, so the fused mesh renders exactly like the parts.
 function mergeGeometries(geoms) {
-  let vCount = 0;
-  let iCount = 0;
-  for (const g of geoms) {
-    vCount += g.attributes.position.count;
-    iCount += g.index.count;
+  const blocks = geoms.map((g) => ({
+    verts: g.attributes.position.count,
+    tris: g.index.count,
+    pos: g.attributes.position.array,
+    nor: g.attributes.normal.array,
+    uv: g.attributes.uv.array,
+    idx: g.index.array,
+  }));
+  const totalVerts = blocks.reduce((sum, b) => sum + b.verts, 0);
+  const totalTris = blocks.reduce((sum, b) => sum + b.tris, 0);
+  const pos = new Float32Array(totalVerts * 3);
+  const nor = new Float32Array(totalVerts * 3);
+  const uv = new Float32Array(totalVerts * 2);
+  const idx = new Uint32Array(totalTris);
+  let vBase = 0;
+  let iBase = 0;
+  for (const b of blocks) {
+    pos.set(b.pos, vBase * 3);
+    nor.set(b.nor, vBase * 3);
+    uv.set(b.uv, vBase * 2);
+    for (let k = 0; k < b.tris; k++) idx[iBase + k] = b.idx[k] + vBase;
+    vBase += b.verts;
+    iBase += b.tris;
   }
-  const pos = new Float32Array(vCount * 3);
-  const nor = new Float32Array(vCount * 3);
-  const uv = new Float32Array(vCount * 2);
-  const idx = new Uint32Array(iCount);
-  let vOff = 0;
-  let iOff = 0;
-  for (const g of geoms) {
-    pos.set(g.attributes.position.array, vOff * 3);
-    nor.set(g.attributes.normal.array, vOff * 3);
-    uv.set(g.attributes.uv.array, vOff * 2);
-    const src = g.index.array;
-    for (let i = 0; i < src.length; i++) idx[iOff + i] = src[i] + vOff;
-    vOff += g.attributes.position.count;
-    iOff += src.length;
-  }
-  const out = new THREE.BufferGeometry();
-  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-  out.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-  out.setIndex(new THREE.BufferAttribute(idx, 1));
-  out.computeBoundingSphere();
-  return out;
+  const fused = new THREE.BufferGeometry();
+  fused.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  fused.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  fused.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  fused.setIndex(new THREE.BufferAttribute(idx, 1));
+  fused.computeBoundingSphere();
+  return fused;
 }
 
 // See the header note: r149 culls InstancedMesh by geometry.boundingSphere
 // only. Give the (unit) geometry a city-sized sphere and switch culling off.
 function secureInstanced(mesh) {
-  mesh.geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 1200);
+  const citySphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), 1200);
+  mesh.geometry.boundingSphere = citySphere;
   mesh.frustumCulled = false;
   return mesh;
 }
 
-// Flat ground strip (road / sidewalk / zebra) with UVs baked for a repeating
-// texture: u runs along the strip length (tile = 6 m), v across its width.
-// alongX: strip runs along X (else along Z). cx/cz: centre. y: height.
+// Flat ground ribbon (road / sidewalk / zebra) with UVs baked for a
+// repeating texture: u runs along the ribbon length (tile = 6 m), v
+// across its width. alongX: ribbon runs along X (else along Z).
+// cx/cz: centre. y: height.
 function stripGeo(len, wid, alongX, cx, cz, y, uRepeat) {
-  const g = new THREE.PlaneGeometry(wid, len, 1, 1);
-  g.rotateX(-Math.PI / 2);
-  if (alongX) g.rotateY(Math.PI / 2);
-  // Swap UVs so u follows the strip length, scaled to the tile repeat.
-  const uvAttr = g.attributes.uv;
-  for (let i = 0; i < uvAttr.count; i++) {
-    const u = uvAttr.getX(i);
-    const v = uvAttr.getY(i);
-    uvAttr.setXY(i, v * uRepeat, u);
+  const plane = new THREE.PlaneGeometry(wid, len, 1, 1);
+  plane.rotateX(-Math.PI / 2);
+  if (alongX) plane.rotateY(Math.PI / 2);
+  // Re-map the UVs so u follows the ribbon length at the tile repeat:
+  // the plane's v becomes the new u (scaled), its u becomes the new v.
+  const uvAttr = plane.attributes.uv;
+  const remapped = new Float32Array(uvAttr.count * 2);
+  for (let v = 0; v < uvAttr.count; v++) {
+    remapped[v * 2] = uvAttr.getY(v) * uRepeat;
+    remapped[v * 2 + 1] = uvAttr.getX(v);
   }
-  g.translate(cx, y, cz);
-  return g;
+  uvAttr.array.set(remapped);
+  uvAttr.needsUpdate = true;
+  plane.translate(cx, y, cz);
+  return plane;
 }
 
 export function createWorld(scene) {
@@ -289,58 +300,80 @@ export function createWorld(scene) {
   function wideLeftClearance() {
     const GAP_HALF = 2.2;
     const INSET = 0.5;
+    // Closest point on segment AB to point P, as a clamped parameter.
+    const closestParam = (px, pz, ax, az, bx, bz) => {
+      const ex = bx - ax;
+      const ez = bz - az;
+      const lenSq = ex * ex + ez * ez;
+      if (lenSq === 0) return 0;
+      const t = ((px - ax) * ex + (pz - az) * ez) / lenSq;
+      return t < 0 ? 0 : t > 1 ? 1 : t;
+    };
     const distPtSeg = (px, pz, ax, az, bx, bz) => {
-      const dx = bx - ax;
-      const dz = bz - az;
-      const len2 = dx * dx + dz * dz;
-      let t = len2 ? ((px - ax) * dx + (pz - az) * dz) / len2 : 0;
-      t = Math.max(0, Math.min(1, t));
-      return Math.hypot(px - (ax + t * dx), pz - (az + t * dz));
+      const t = closestParam(px, pz, ax, az, bx, bz);
+      return Math.hypot(px - (ax + (bx - ax) * t), pz - (az + (bz - az) * t));
+    };
+    const cross = (ax, az, bx, bz, cx, cz) => (bx - ax) * (cz - az) - (bz - az) * (cx - ax);
+    const segmentsCross = (ax, az, bx, bz, cx, cz, dx, dz) => {
+      const c1 = cross(ax, az, bx, bz, cx, cz);
+      const c2 = cross(ax, az, bx, bz, dx, dz);
+      const c3 = cross(cx, cz, dx, dz, ax, az);
+      const c4 = cross(cx, cz, dx, dz, bx, bz);
+      return (c1 > 0) !== (c2 > 0) && (c3 > 0) !== (c4 > 0);
     };
     const distSegSeg = (ax, az, bx, bz, cx, cz, dx, dz) => {
-      // Segments that cross are 0 apart; otherwise the minimum is
-      // attained at an endpoint of one segment against the other.
-      const orient = (px, pz, qx, qz, rx, rz) => (qx - px) * (rz - pz) - (qz - pz) * (rx - px);
-      const o1 = orient(ax, az, bx, bz, cx, cz);
-      const o2 = orient(ax, az, bx, bz, dx, dz);
-      const o3 = orient(cx, cz, dx, dz, ax, az);
-      const o4 = orient(cx, cz, dx, dz, bx, bz);
-      if (((o1 > 0) !== (o2 > 0) && (o3 > 0) !== (o4 > 0))) return 0;
-      return Math.min(
-        distPtSeg(ax, az, cx, cz, dx, dz), distPtSeg(bx, bz, cx, cz, dx, dz),
-        distPtSeg(cx, cz, ax, az, bx, bz), distPtSeg(dx, dz, ax, az, bx, bz),
-      );
+      // Crossing segments are 0 apart; otherwise the minimum is an
+      // endpoint of one segment against the other.
+      if (segmentsCross(ax, az, bx, bz, cx, cz, dx, dz)) return 0;
+      const ends = [
+        distPtSeg(ax, az, cx, cz, dx, dz),
+        distPtSeg(bx, bz, cx, cz, dx, dz),
+        distPtSeg(cx, cz, ax, az, bx, bz),
+        distPtSeg(dx, dz, ax, az, bx, bz),
+      ];
+      return Math.min(...ends);
+    };
+    // Hedge centre-lines of one garden, as [x1, z1, x2, z2] segments.
+    // Hedges sit 0.5 m inside the rect; the side carrying the foot gap
+    // is split into two runs either side of gapC +/- 2.2 m.
+    const hedgeRuns = (g) => {
+      const xL = g.x0 + INSET;
+      const xR = g.x1 - INSET;
+      const zT = g.z0 + INSET;
+      const zB = g.z1 - INSET;
+      const sides = {
+        N: [xL, zT, xR, zT],
+        S: [xL, zB, xR, zB],
+        W: [xL, zT, xL, zB],
+        E: [xR, zT, xR, zB],
+      };
+      const runs = [];
+      for (const [side, seg] of Object.entries(sides)) {
+        if (side !== g.gapSide) { runs.push(seg); continue; }
+        const horizontal = side === 'N' || side === 'S';
+        const fixed = horizontal ? seg[1] : seg[0];
+        const lo = horizontal ? seg[0] : seg[1];
+        const hi = horizontal ? seg[2] : seg[3];
+        const cut = g.gapSide === 'N' || g.gapSide === 'W' ? g.gapC : g.gapC;
+        const a = cut - GAP_HALF;
+        const b = cut + GAP_HALF;
+        if (horizontal) {
+          runs.push([lo, fixed, a, fixed]);
+          runs.push([b, fixed, hi, fixed]);
+        } else {
+          runs.push([fixed, lo, fixed, a]);
+          runs.push([fixed, b, fixed, hi]);
+        }
+      }
+      return runs;
     };
     return FLYOVERS.map((f) => {
       const g = FLYOVER_GARDENS.find((gg) => gg.x1 <= f.x && gg.z1 <= 0);
       if (!g) return { fx: f.x, garden: null, clearanceM: null };
-      const hx0 = g.x0 + INSET;
-      const hx1 = g.x1 - INSET;
-      const hz0 = g.z0 + INSET;
-      const hz1 = g.z1 - INSET;
-      const edges = [
-        [hx0, hz0, hx1, hz0], // north edge
-        [hx0, hz1, hx1, hz1], // south edge (split below when it holds the gap)
-        [hx0, hz0, hx0, hz1], // west edge
-        [hx1, hz0, hx1, hz1], // east edge
-      ];
-      if (g.gapSide === 'S') {
-        edges[1] = null;
-        edges.push([hx0, hz1, g.gapC - GAP_HALF, hz1]);
-        edges.push([g.gapC + GAP_HALF, hz1, hx1, hz1]);
-      } else if (g.gapSide === 'N') {
-        edges[0] = null;
-        edges.push([hx0, hz0, g.gapC - GAP_HALF, hz0]);
-        edges.push([g.gapC + GAP_HALF, hz0, hx1, hz0]);
-      }
-      const ax = f.x - 30;
-      const az = 0;
-      const bx = f.x - 4.5;
-      const bz = -30;
+      const drive = [f.x - 30, 0, f.x - 4.5, -30];
       let best = Infinity;
-      for (const e of edges) {
-        if (!e) continue;
-        best = Math.min(best, distSegSeg(ax, az, bx, bz, e[0], e[1], e[2], e[3]));
+      for (const e of hedgeRuns(g)) {
+        best = Math.min(best, distSegSeg(drive[0], drive[1], drive[2], drive[3], e[0], e[1], e[2], e[3]));
       }
       return { fx: f.x, garden: { x0: g.x0, x1: g.x1, z0: g.z0, z1: g.z1, gapC: g.gapC }, clearanceM: +best.toFixed(2) };
     });
@@ -587,43 +620,54 @@ export function createWorld(scene) {
     // Roads sit at y=0.05, zebras at 0.06 — paint floats at 0.10 so it
     // never z-fights either.
     const arrowHeadGeo = (() => {
-      const s = new THREE.Shape();
-      s.moveTo(0, 1.1); s.lineTo(-0.65, 0); s.lineTo(0.65, 0); s.closePath();
-      const g = new THREE.ShapeGeometry(s);
+      const shape = new THREE.Shape();
+      shape.moveTo(0, 1.1);
+      shape.lineTo(-0.65, 0);
+      shape.lineTo(0.65, 0);
+      shape.closePath();
+      const g = new THREE.ShapeGeometry(shape);
       g.rotateX(-Math.PI / 2); // tip points -z; mesh.rotation.y aims it
       return g;
     })();
-    function flatMark(geo, x, y, z, rotY = 0) {
+    // Lay a flat paint mesh on the ground (y 0.10, above roads at 0.05
+    // and zebras at 0.06, so it never z-fights either).
+    function paintMark(geo, x, z, rotY = 0) {
       const m = new THREE.Mesh(geo, markPale);
       if (rotY) m.rotation.y = rotY;
-      m.position.set(x, y, z);
+      m.position.set(x, 0.10, z);
       m.frustumCulled = false;
       scene.add(m);
       return m;
     }
-    function flatPlane(w, l, x, z) {
+    function paintStrip(w, l, x, z) {
       const g = new THREE.PlaneGeometry(w, l);
       g.rotateX(-Math.PI / 2);
-      return flatMark(g, x, 0.10, z);
+      return paintMark(g, x, z);
     }
     // Straight-ahead arrow, centred at (cx, cz), pointing dir (+1 = +z
     // south, -1 = -z north). Shaft + head, ~3.6 m long.
     function straightArrow(cx, cz, dir) {
-      flatPlane(0.35, 2.4, cx, cz - dir * 0.55);
-      flatMark(arrowHeadGeo, cx, 0.10, cz + dir * 0.7, dir > 0 ? Math.PI : 0);
+      paintStrip(0.35, 2.4, cx, cz - dir * 0.55);
+      paintMark(arrowHeadGeo, cx, cz + dir * 0.7, dir > 0 ? Math.PI : 0);
     }
     // Turn arrow (left OR right): horizontal bar with a head at each end.
     function turnArrow(cx, cz) {
-      flatPlane(2.4, 0.35, cx, cz);
-      flatMark(arrowHeadGeo, cx + 0.15, 0.10, cz, -Math.PI / 2); // head +x
-      flatMark(arrowHeadGeo, cx - 0.15, 0.10, cz, Math.PI / 2); // head -x
+      paintStrip(2.4, 0.35, cx, cz);
+      paintMark(arrowHeadGeo, cx + 0.15, cz, -Math.PI / 2); // head +x
+      paintMark(arrowHeadGeo, cx - 0.15, cz, Math.PI / 2); // head -x
+    }
+    // One slab (deck / ramp / barrier): a box mesh placed + rotated once.
+    function addSlab(w, h, d, x, y, z, mat, rotX = 0) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+      m.position.set(x, y, z);
+      if (rotX) m.rotation.x = rotX;
+      m.frustumCulled = false;
+      scene.add(m);
+      return m;
     }
     for (const f of FLYOVERS) {
       // Flat deck over the intersection box (z ±10), top at y = H.
-      const deck = new THREE.Mesh(new THREE.BoxGeometry(FLYOVER.width, 0.6, FLYOVER.deckHalf * 2), slabMat);
-      deck.position.set(f.x, H - 0.3, f.z);
-      deck.frustumCulled = false;
-      scene.add(deck);
+      addSlab(FLYOVER.width, 0.6, FLYOVER.deckHalf * 2, f.x, H - 0.3, f.z, slabMat);
       // Deck edge lines (solid) + centre dashes (3 m dash, 3.5 m gap).
       for (const ex of [-W2 + 0.45, W2 - 0.45]) {
         const line = new THREE.Mesh(new THREE.PlaneGeometry(0.15, FLYOVER.deckHalf * 2), markPale);
@@ -641,22 +685,13 @@ export function createWorld(scene) {
       }
       // Ramps: inclined slabs, top surface 0 at |z| = 60, H at |z| = 10.
       for (const side of [-1, 1]) {
-        const ramp = new THREE.Mesh(new THREE.BoxGeometry(FLYOVER.width, 0.6, slopeLen), slabMat);
-        ramp.position.set(f.x, H / 2 - 0.3, f.z + side * (FLYOVER.deckHalf + RAMP / 2));
-        ramp.rotation.x = side > 0 ? slopeAng : -slopeAng;
-        ramp.frustumCulled = false;
-        scene.add(ramp);
+        const rampZ = f.z + side * (FLYOVER.deckHalf + RAMP / 2);
+        const rampTilt = side > 0 ? slopeAng : -slopeAng;
+        addSlab(FLYOVER.width, 0.6, slopeLen, f.x, H / 2 - 0.3, rampZ, slabMat, rampTilt);
         // Side barriers on deck + ramps (visual; the deck edge is a drop).
         for (const bx of [-W2 + 0.15, W2 - 0.15]) {
-          const deckBar = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.9, FLYOVER.deckHalf * 2), edgeMat);
-          deckBar.position.set(f.x + bx, H + 0.45, f.z);
-          deckBar.frustumCulled = false;
-          scene.add(deckBar);
-          const rampBar = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.9, slopeLen), edgeMat);
-          rampBar.position.set(f.x + bx, H / 2 + 0.45, f.z + side * (FLYOVER.deckHalf + RAMP / 2));
-          rampBar.rotation.x = side > 0 ? slopeAng : -slopeAng;
-          rampBar.frustumCulled = false;
-          scene.add(rampBar);
+          addSlab(0.3, 0.9, FLYOVER.deckHalf * 2, f.x + bx, H + 0.45, f.z, edgeMat);
+          addSlab(0.3, 0.9, slopeLen, f.x + bx, H / 2 + 0.45, rampZ, edgeMat, rampTilt);
         }
       }
       // Ground lane paint (v6): solid divider between the flyover lane
@@ -670,7 +705,7 @@ export function createWorld(scene) {
         for (const [z0, z1] of [[-75, -10], [10, 75]]) {
           const g = new THREE.PlaneGeometry(0.15, z1 - z0);
           g.rotateX(-Math.PI / 2);
-          flatMark(g, f.x + side * W2, 0.10, (z0 + z1) / 2);
+          paintMark(g, f.x + side * W2, (z0 + z1) / 2);
         }
         // Southbound approach (from the north, z = -75): flyover lane
         // x = f.x + 1.5 straight, turn lane x = f.x + 4.5 turns.
@@ -714,21 +749,24 @@ export function createWorld(scene) {
   // road, so that is driving over it, not clipping through it.
   const FLYOVER_STEP = 0.6;
   function flyoverHeightAt(x, z, currentY = 0) {
-    const H = FLYOVER.deckH;
-    const RAMP = FLYOVER.rampLen;
-    const W2 = FLYOVER.width / 2;
+    const deckH = FLYOVER.deckH;
+    const rampLen = FLYOVER.rampLen;
+    const halfW = FLYOVER.width / 2;
+    const deckZ = FLYOVER.deckHalf;
     for (const f of FLYOVERS) {
-      if (Math.abs(x - f.x) > W2) continue;
-      const dz = z - f.z;
-      const adz = Math.abs(dz);
-      if (adz <= FLYOVER.deckHalf) return currentY > 3 ? H : 0;
-      let h = -1;
-      if (dz < -FLYOVER.deckHalf && dz >= -(FLYOVER.deckHalf + RAMP)) {
-        h = H * (dz + FLYOVER.deckHalf + RAMP) / RAMP;
-      } else if (dz > FLYOVER.deckHalf && dz <= FLYOVER.deckHalf + RAMP) {
-        h = H * (FLYOVER.deckHalf + RAMP - dz) / RAMP;
-      }
-      if (h >= 0) return h - currentY > FLYOVER_STEP ? currentY : h;
+      if (Math.abs(x - f.x) > halfW) continue;
+      const along = z - f.z;
+      const dist = Math.abs(along);
+      if (dist <= deckZ) return currentY > 3 ? deckH : 0;
+      const pastDeck = dist - deckZ;
+      if (pastDeck > rampLen) continue;
+      // Linear ramp profile: full deck height at the deck edge, ground
+      // level at the ramp toe.
+      const h = deckH * (1 - pastDeck / rampLen);
+      // Step guard: a caller more than 0.6 m below the profile stays at
+      // its own height instead of snapping up (prevents popping onto
+      // the deck from the road underneath).
+      return h - currentY > FLYOVER_STEP ? currentY : h;
     }
     return 0;
   }
@@ -749,23 +787,24 @@ export function createWorld(scene) {
   // the intersection and never meets the red light below, so callers
   // skip the signal hold for it.
   function laneTarget(node, prev, next) {
-    for (const f of FLYOVERS) {
-      if (Math.abs(node.x - f.x) > 0.5 || Math.abs(node.z - f.z) > 0.5) continue;
-      const inDx = prev ? node.x - prev.x : 0;
-      const inDz = prev ? node.z - prev.z : 0;
-      const inNS = Math.abs(inDz) >= Math.abs(inDx);
-      const outDx = next ? next.x - node.x : inDx;
-      const outDz = next ? next.z - node.z : inDz;
-      const outNS = Math.abs(outDz) >= Math.abs(outDx);
+    const onFlyover = (p) => FLYOVERS.find(
+      (f) => Math.abs(p.x - f.x) <= 0.5 && Math.abs(p.z - f.z) <= 0.5,
+    ) || null;
+    const fly = onFlyover(node);
+    if (fly) {
+      const inVec = prev ? { x: node.x - prev.x, z: node.z - prev.z } : { x: 0, z: 0 };
+      const outVec = next ? { x: next.x - node.x, z: next.z - node.z } : inVec;
+      const inNS = Math.abs(inVec.z) >= Math.abs(inVec.x);
+      const outNS = Math.abs(outVec.z) >= Math.abs(outVec.x);
       if (inNS) {
         // Southbound (+z) drives the +x side, northbound (-z) the -x side.
-        const side = inDz >= 0 ? 1 : -1;
+        const side = inVec.z >= 0 ? 1 : -1;
         const off = outNS ? FLYOVER.flyLaneX : FLYOVER.turnLaneX;
         return { x: node.x + side * off, z: node.z, viaFlyover: outNS };
       }
       if (!outNS) return { x: node.x, z: node.z, viaFlyover: false };
       // EW in, NS out: join the surface turn lane of the outgoing road.
-      const side = outDz >= 0 ? 1 : -1;
+      const side = outVec.z >= 0 ? 1 : -1;
       return { x: node.x + side * FLYOVER.turnLaneX, z: node.z, viaFlyover: false };
     }
     // v6.4 (median garden): a car that just left a flyover on the
@@ -784,7 +823,7 @@ export function createWorld(scene) {
     // are unaffected: they are elevated, so flyoverExit overrides the
     // steer target before this is used.
     if (prev) {
-      const f = FLYOVERS.find((fl) => Math.abs(prev.x - fl.x) <= 0.5 && Math.abs(prev.z - fl.z) <= 0.5);
+      const f = onFlyover(prev);
       if (f) {
         const legDx = node.x - prev.x;
         const legDz = node.z - prev.z;
@@ -806,15 +845,15 @@ export function createWorld(scene) {
   // forced straight when the CURRENT target was a flyover node: reaching
   // the node mid-deck advanced the path to an EW node and steered the
   // car into the deck-edge barrier (same car, heading 4.67 west).
-  // Ramp foot, in the direction of travel: ground level, flyover lane,
-  // 5 m past the ramp toe (|z| = deckHalf + rampLen + 5 = 65).
+  // A flyover corridor is the deck plus both ramps plus a 5 m margin
+  // past each ramp toe; only an elevated caller (y > 0.5) is "in" one.
   function flyoverAt(x, z, y) {
     if (y <= 0.5) return null;
-    for (const f of FLYOVERS) {
-      if (Math.abs(x - f.x) <= FLYOVER.width / 2 + 1
-        && Math.abs(z - f.z) <= FLYOVER.deckHalf + FLYOVER.rampLen + 5) return f;
-    }
-    return null;
+    const halfW = FLYOVER.width / 2 + 1;
+    const reach = FLYOVER.deckHalf + FLYOVER.rampLen + 5;
+    return FLYOVERS.find(
+      (f) => Math.abs(x - f.x) <= halfW && Math.abs(z - f.z) <= reach,
+    ) || null;
   }
   // Exit point for a car elevated inside a flyover corridor: the ramp
   // foot past the flyover, in the direction of travel. The direction
@@ -825,13 +864,11 @@ export function createWorld(scene) {
   function flyoverExit(x, z, y, heading) {
     const f = flyoverAt(x, z, y);
     if (!f) return null;
-    let s;
-    if (Math.cos(heading) >= 0.5) s = 1;
-    else if (Math.cos(heading) <= -0.5) s = -1;
-    else s = z >= f.z ? 1 : -1;
+    const ns = Math.cos(heading);
+    const dir = ns >= 0.5 ? 1 : ns <= -0.5 ? -1 : (z >= f.z ? 1 : -1);
     return {
-      x: f.x + s * FLYOVER.flyLaneX,
-      z: f.z + s * (FLYOVER.deckHalf + FLYOVER.rampLen + 5),
+      x: f.x + dir * FLYOVER.flyLaneX,
+      z: f.z + dir * (FLYOVER.deckHalf + FLYOVER.rampLen + 5),
       viaFlyover: true,
     };
   }
@@ -845,27 +882,23 @@ export function createWorld(scene) {
   function aheadNode(x, z, heading) {
     const hx = Math.sin(heading);
     const hz = Math.cos(heading);
-    const ns = Math.abs(hz) >= Math.abs(hx);
-    let best = null;
-    let bestD = Infinity;
-    for (const n of roadGraph.nodes) {
-      const dx = n.x - x;
-      const dz = n.z - z;
-      if (dx * hx + dz * hz <= 0) continue; // behind
-      const lat = ns ? Math.abs(n.x - x) : Math.abs(n.z - z);
-      if (lat > 1) continue; // not on the same street
-      const d = dx * dx + dz * dz;
-      if (d < bestD) { bestD = d; best = n; }
-    }
-    if (best) return best;
-    for (const n of roadGraph.nodes) {
-      const dx = n.x - x;
-      const dz = n.z - z;
-      if (dx * hx + dz * hz <= 0) continue; // behind
-      const d = dx * dx + dz * dz;
-      if (d < bestD) { bestD = d; best = n; }
-    }
-    return best;
+    const northSouth = Math.abs(hz) >= Math.abs(hx);
+    const isAhead = (n) => (n.x - x) * hx + (n.z - z) * hz > 0;
+    const scan = (sameStreet) => {
+      let best = null;
+      let bestD = Infinity;
+      for (const n of roadGraph.nodes) {
+        if (!isAhead(n)) continue;
+        if (sameStreet) {
+          const lateral = northSouth ? Math.abs(n.x - x) : Math.abs(n.z - z);
+          if (lateral > 1) continue;
+        }
+        const d = (n.x - x) ** 2 + (n.z - z) ** 2;
+        if (d < bestD) { bestD = d; best = n; }
+      }
+      return best;
+    };
+    return scan(true) || scan(false);
   }
   // Unstuck teleport target for a stuck car. Returns {x, z, heading}
   // (heading null = keep the current heading), or null when no
@@ -880,33 +913,35 @@ export function createWorld(scene) {
   // node (>= 2 m away). A car wedged inside a building is >= 10 m
   // from the nearest road, so the building case is unaffected.
   function unstuckTarget(x, z, y, heading) {
-    const farEnough = (p) => Math.hypot(p.x - x, p.z - z) >= 2;
-    const clear = (p) => !collides(p.x, p.z, 1.5, 0);
+    const usable = (p) => p
+      && Math.hypot(p.x - x, p.z - z) >= 2
+      && !collides(p.x, p.z, 1.5, 0);
     const f = flyoverAt(x, z, y);
     if (f) {
       const exit = flyoverExit(x, z, y, heading);
-      const s = exit.z >= f.z ? 1 : -1;
-      const foot = (dir) => ({
-        x: f.x + dir * FLYOVER.flyLaneX,
-        z: f.z + dir * (FLYOVER.deckHalf + FLYOVER.rampLen + 5),
-        heading: dir > 0 ? 0 : Math.PI,
+      const dir = exit.z >= f.z ? 1 : -1;
+      const foot = (d) => ({
+        x: f.x + d * FLYOVER.flyLaneX,
+        z: f.z + d * (FLYOVER.deckHalf + FLYOVER.rampLen + 5),
+        heading: d > 0 ? 0 : Math.PI,
       });
-      for (const cand of [foot(s), foot(-s)]) {
-        if (farEnough(cand) && clear(cand)) return cand;
+      for (const cand of [foot(dir), foot(-dir)]) {
+        if (usable(cand)) return cand;
       }
       // Both feet blocked (should not happen — they are open road):
       // fall through to the ground candidates below.
     }
-    if (roadGraph && roadGraph.nearestOnRoad) {
+    const graph = roadGraph || {};
+    if (graph.nearestOnRoad) {
       try {
-        const near = roadGraph.nearestOnRoad(x, z);
-        if (near && farEnough(near) && clear(near)) return { x: near.x, z: near.z, heading: null };
+        const near = graph.nearestOnRoad(x, z);
+        if (usable(near)) return { x: near.x, z: near.z, heading: null };
       } catch { /* try the node */ }
     }
-    if (roadGraph && roadGraph.nearestNode) {
+    if (graph.nearestNode) {
       try {
-        const n = roadGraph.nearestNode(x, z);
-        if (n && farEnough(n) && clear(n)) return { x: n.x, z: n.z, heading: null };
+        const n = graph.nearestNode(x, z);
+        if (usable(n)) return { x: n.x, z: n.z, heading: null };
       } catch { /* no candidate */ }
     }
     return null;
@@ -1008,14 +1043,17 @@ export function createWorld(scene) {
   // so the windows stay warm and lit at night. Harbor/quay and
   // RESERVED buildings keep the plain grey tint.
   function makeInstancedBox(list, texture, emissiveIntensity, lightTexture) {
-    const grey = [];
-    const pastel = [];
+    // Split the kind's buildings into a grey run and a pastel run.
+    // One pastel draw per building, in list order — the draw sequence
+    // feeds the shared pastel RNG, so the order must not change.
+    const runs = { grey: [], pastel: [] };
     for (const b of list) {
-      if ((b.zone === 'downtown' || b.zone === 'beach') && pastelRng() < 0.45) pastel.push(b);
-      else grey.push(b);
+      const pastelZone = b.zone === 'downtown' || b.zone === 'beach';
+      if (pastelZone && pastelRng() < 0.45) runs.pastel.push(b);
+      else runs.grey.push(b);
     }
-    pastelCount += pastel.length;
-    const build = (sub, tex, mode) => {
+    pastelCount += runs.pastel.length;
+    const placeInstances = (sub, tex, mode) => {
       if (!sub.length) return;
       const geo = new THREE.BoxGeometry(1, 1, 1);
       const mat = new THREE.MeshStandardMaterial({
@@ -1024,7 +1062,8 @@ export function createWorld(scene) {
       });
       windowMats.push({ mat, base: emissiveIntensity }); // Builder C v4
       const mesh = new THREE.InstancedMesh(geo, mat, sub.length);
-      sub.forEach((b, i) => {
+      for (let i = 0; i < sub.length; i++) {
+        const b = sub[i];
         dummy.position.set(b.x, b.h / 2, b.z);
         dummy.scale.set(b.w, b.h, b.d);
         dummy.rotation.set(0, 0, 0);
@@ -1036,15 +1075,15 @@ export function createWorld(scene) {
           const tint = randRange(rng, 0.85, 1.05);
           mesh.setColorAt(i, tmpColor.setRGB(tint, tint, tint));
         }
-      });
+      }
       mesh.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       // Neon Bay v7 lesson: correct sphere + never culled.
       secureInstanced(mesh);
       scene.add(mesh);
     };
-    build(grey, texture, 'grey');
-    build(pastel, lightTexture || texture, 'pastel');
+    placeInstances(runs.grey, texture, 'grey');
+    placeInstances(runs.pastel, lightTexture || texture, 'pastel');
   }
   makeInstancedBox(byKind.tower, TEX.makeBuildingTexture('tower'), 0.85, TEX.makeBuildingTextureLight('tower'));
   makeInstancedBox(byKind.mid, TEX.makeBuildingTexture('mid'), 0.85, TEX.makeBuildingTextureLight('mid'));
@@ -2016,6 +2055,13 @@ export function createWorld(scene) {
     return x >= SAND_X0 && x < WATER_X0 && z >= -D / 2 && z <= D / 2;
   }
 
+  // Circle-vs-rect test shared by every collider below: a disc of
+  // radius r centred at (x, z) overlaps the rect when its expanded
+  // bounds cross the rect on both axes.
+  const rectHit = (x, z, r, rect) => (
+    x + r > rect.minX && x - r < rect.maxX && z + r > rect.minZ && z - r < rect.maxZ
+  );
+
   // Flyover deck/ramp edge barriers, as 2D rects matching the yellow
   // barrier boxes (0.3 m thick at x = f.x ± (W2 - 0.15), z ±60 covering
   // deck + both ramps). HEIGHT-GATED: they only block callers that pass
@@ -2025,15 +2071,16 @@ export function createWorld(scene) {
   // (item 1d). A jumping player peaks at ~1.1 m, so 1.5 keeps jumps
   // under the deck free too. Callers that don't pass y default to 0
   // (ground) and keep the old behaviour.
-  const flyoverBarriers = [];
-  for (const f of FLYOVERS) {
-    const W2 = FLYOVER.width / 2;
+  const flyoverBarriers = FLYOVERS.flatMap((f) => {
+    const halfW = FLYOVER.width / 2;
     const z0 = f.z - (FLYOVER.deckHalf + FLYOVER.rampLen);
     const z1 = f.z + (FLYOVER.deckHalf + FLYOVER.rampLen);
     // Barrier box footprint: 0.3 m thick, centred at f.x ± (W2 - 0.15).
-    flyoverBarriers.push({ minX: f.x + W2 - 0.3, maxX: f.x + W2, minZ: z0, maxZ: z1 });
-    flyoverBarriers.push({ minX: f.x - W2, maxX: f.x - W2 + 0.3, minZ: z0, maxZ: z1 });
-  }
+    return [
+      { minX: f.x + halfW - 0.3, maxX: f.x + halfW, minZ: z0, maxZ: z1 },
+      { minX: f.x - halfW, maxX: f.x - halfW + 0.3, minZ: z0, maxZ: z1 },
+    ];
+  });
 
   function collides(x, z, r, y = 0) {
     if (x > WATER_X0 - 2) return true; // water is not walkable
@@ -2044,29 +2091,37 @@ export function createWorld(scene) {
       // below (which gate the other way). Plain colliders (buildings,
       // v6.3 hedges) have no maxY and behave exactly as before.
       if (c.maxY !== undefined && y > c.maxY) continue;
-      if (x + r > c.minX && x - r < c.maxX && z + r > c.minZ && z - r < c.maxZ) return true;
+      if (rectHit(x, z, r, c)) return true;
     }
     if (y > 1.5) {
       for (const b of flyoverBarriers) {
-        if (x + r > b.minX && x - r < b.maxX && z + r > b.minZ && z - r < b.maxZ) return true;
+        if (rectHit(x, z, r, b)) return true;
       }
     }
     return false;
   }
 
-  function findOpenGround(x, z, maxR = 60) {
-    if (!collides(x, z, 1.5) && Math.abs(x) < W / 2 - 5 && Math.abs(z) < D / 2 - 5) return { x, z };
+  // Expanding-ring search for the nearest point that passes `ok`:
+  // rings of radius 2, 4, ... up to maxR, 16 samples per ring, starting
+  // due east. Both ground searches below share it, so they agree on
+  // probe order.
+  function spiralSearch(x, z, maxR, ok) {
+    const inBounds = (px, pz) => Math.abs(px) < W / 2 - 5 && Math.abs(pz) < D / 2 - 5;
+    if (inBounds(x, z) && ok(x, z)) return { x, z };
     for (let radius = 2; radius <= maxR; radius += 2) {
-      const steps = 16;
-      for (let k = 0; k < steps; k++) {
-        const a = (k / steps) * Math.PI * 2;
+      for (let k = 0; k < 16; k++) {
+        const a = (k / 16) * Math.PI * 2;
         const px = x + Math.cos(a) * radius;
         const pz = z + Math.sin(a) * radius;
-        if (Math.abs(px) >= W / 2 - 5 || Math.abs(pz) >= D / 2 - 5) continue;
-        if (!collides(px, pz, 1.5)) return { x: px, z: pz };
+        if (!inBounds(px, pz)) continue;
+        if (ok(px, pz)) return { x: px, z: pz };
       }
     }
     return null;
+  }
+
+  function findOpenGround(x, z, maxR = 60) {
+    return spiralSearch(x, z, maxR, (px, pz) => !collides(px, pz, 1.5));
   }
 
   // Park spot (v6.6 item 2): open ground AND clear of every road band
@@ -2077,25 +2132,13 @@ export function createWorld(scene) {
   // 0.44 m over the z=0 arterial's edge. Same spiral search, plus the
   // road-clearance test on every candidate.
   function findParkSpot(x, z, maxR = 60) {
-    const clear = (px, pz) => {
+    return spiralSearch(x, z, maxR, (px, pz) => {
       if (collides(px, pz, 1.5)) return false;
       const n = roadGraph.nearestOnRoad(px, pz);
       if (!n) return true;
       const seg = roadGraph.segments[n.segment];
       return n.dist > seg.width / 2 + 2.7;
-    };
-    if (clear(x, z) && Math.abs(x) < W / 2 - 5 && Math.abs(z) < D / 2 - 5) return { x, z };
-    for (let radius = 2; radius <= maxR; radius += 2) {
-      const steps = 16;
-      for (let k = 0; k < steps; k++) {
-        const a = (k / steps) * Math.PI * 2;
-        const px = x + Math.cos(a) * radius;
-        const pz = z + Math.sin(a) * radius;
-        if (Math.abs(px) >= W / 2 - 5 || Math.abs(pz) >= D / 2 - 5) continue;
-        if (clear(px, pz)) return { x: px, z: pz };
-      }
-    }
-    return null;
+    });
   }
 
   // Sidewalk spots nearest to (x, z): the centre of each 3 m sidewalk strip
@@ -2117,14 +2160,13 @@ export function createWorld(scene) {
     t = Math.max(0, Math.min(1, t));
     const cx = s.ax + dx * t;
     const cz = s.az + dz * t;
-    const out = [];
-    for (const side of [1, -1]) {
+    const spots = [1, -1].map((side) => {
       const px = cx + (alongX ? 0 : side * off);
       const pz = cz + (alongX ? side * off : 0);
-      out.push({ x: px, z: pz, dist: Math.hypot(px - x, pz - z), side, segment: near.segment });
-    }
-    out.sort((a, b) => a.dist - b.dist);
-    return out;
+      return { x: px, z: pz, dist: Math.hypot(px - x, pz - z), side, segment: near.segment };
+    });
+    spots.sort((a, b) => a.dist - b.dist);
+    return spots;
   }
 
   const destinations = [
@@ -2159,6 +2201,30 @@ export function createWorld(scene) {
 
   const loadMs = performance.now() - t0;
 
+  // Tallest roof over a point, across every building kind (0 = open
+  // ground). The police helicopter reads this for roof avoidance:
+  // downtown towers reach 58 m, so a fixed 30 m orbit would fly
+  // straight through them.
+  function tallestRoofAt(x, z) {
+    const all = [...byKind.tower, ...byKind.mid, ...byKind.house, ...byKind.warehouse];
+    let top = 0;
+    for (const b of all) {
+      const insideX = Math.abs(x - b.x) <= b.w / 2 + 1;
+      const insideZ = Math.abs(z - b.z) <= b.d / 2 + 1;
+      if (insideX && insideZ && b.h > top) top = b.h;
+    }
+    return top;
+  }
+
+  const flyoverViews = FLYOVERS.map((f) => ({
+    ...f,
+    deckH: FLYOVER.deckH,
+    rampLen: FLYOVER.rampLen,
+    width: FLYOVER.width,
+    deckHalf: FLYOVER.deckHalf,
+    flyLaneX: FLYOVER.flyLaneX,
+  }));
+
   const api = {
     ground,
     clamp(x, z) {
@@ -2171,7 +2237,7 @@ export function createWorld(scene) {
     },
     spawn,
     roadGraph,
-    flyovers: FLYOVERS.map((f) => ({ ...f, deckH: FLYOVER.deckH, rampLen: FLYOVER.rampLen, width: FLYOVER.width, deckHalf: FLYOVER.deckHalf, flyLaneX: FLYOVER.flyLaneX })),
+    flyovers: flyoverViews,
     flyoverGardens: FLYOVER_GARDENS,
     // v6.6-fix round 2: static wide-left diagonal clearance per flyover
     // (see wideLeftClearance above) — the regression harness asserts
@@ -2193,16 +2259,9 @@ export function createWorld(scene) {
       return flyoverHeightAt(x, z, currentY);
     },
     // v6.5 item 5: tallest building roof under a point (0 = open ground),
-    // for the police helicopter's roof avoidance — downtown towers reach
-    // 58 m, so a fixed 30 m orbit would fly straight through them.
+    // for the police helicopter's roof avoidance.
     tallestAt(x, z) {
-      let h = 0;
-      for (const list of [byKind.tower, byKind.mid, byKind.house, byKind.warehouse]) {
-        for (const b of list) {
-          if (Math.abs(x - b.x) <= b.w / 2 + 1 && Math.abs(z - b.z) <= b.d / 2 + 1 && b.h > h) h = b.h;
-        }
-      }
-      return h;
+      return tallestRoofAt(x, z);
     },
     findOpenGround,
     findParkSpot,
@@ -2230,8 +2289,20 @@ export function createWorld(scene) {
     update() {},
   };
 
+  // v6.6 item 4: neon instance counts, so the harness can verify the
+  // density increase directly (pixel metrics at one viewpoint are noisy
+  // across rng reshuffles).
+  const neonCounts = {
+    signs: neonSigns.length,
+    strips: neonStrips.length,
+    rooflines: neonRooflines.length,
+    windows: neonWindowCount,
+  };
+
   window.NEON_VICE_WORLD = {
     version: 'world-b1',
+    scene,
+    world: api,
     counts,
     roadGraph,
     flyovers: api.flyovers,
@@ -2247,22 +2318,10 @@ export function createWorld(scene) {
     treesRetried,
     roadClearM: ROAD_CLEAR_M,
     trafficLightPositions: tlPositions,
-    scene,
     loadMs,
-    world: api,
     groundHeightAt: api.groundHeightAt,
     findOpenGround: api.findOpenGround,
     findParkSpot: api.findParkSpot,
-    benches,
-    // v6.6 item 4: neon instance counts, so the harness can verify the
-    // density increase directly (pixel metrics at one viewpoint are noisy
-    // across rng reshuffles).
-    neonCounts: {
-      signs: neonSigns.length, strips: neonStrips.length,
-      rooflines: neonRooflines.length, windows: neonWindowCount,
-    },
-    // v6.6 item 7: pastel facade count (downtown + beach, ~45%).
-    pastelCount,
     nearestSidewalk: api.nearestSidewalk,
     collides: api.collides,
     isInWater: api.isInWater,
@@ -2270,6 +2329,10 @@ export function createWorld(scene) {
     // (sand-speed cap verification, boardwalk walk probe).
     isOnSand: api.isOnSand,
     boardwalk: BOARDWALK,
+    benches,
+    neonCounts,
+    // v6.6 item 7: pastel facade count (downtown + beach, ~45%).
+    pastelCount,
   };
 
   return api;

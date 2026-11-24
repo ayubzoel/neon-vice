@@ -56,6 +56,8 @@ try {
 function normalizeWorld(raw) {
   const halfW = CONFIG.world.width / 2 - CONFIG.player.radius;
   const halfD = CONFIG.world.depth / 2 - CONFIG.player.radius;
+  const has = (key) => typeof raw[key] === 'function';
+  const pass = (key) => (...args) => raw[key](...args);
   return {
     raw,
     spawn: (raw.spawn && typeof raw.spawn.x === 'number') ? raw.spawn : CONFIG.spawn,
@@ -65,15 +67,15 @@ function normalizeWorld(raw) {
     },
     // v5: forward y so the flyover deck barriers (raw.collides 4th arg)
     // block an elevated caller but never ground traffic under the deck.
-    collides: typeof raw.collides === 'function' ? (x, z, r, y = 0) => raw.collides(x, z, r, y) : null,
-    isInWater: typeof raw.isInWater === 'function'
+    collides: has('collides') ? (x, z, r, y = 0) => raw.collides(x, z, r, y) : null,
+    isInWater: has('isInWater')
       ? (x, z) => raw.isInWater(x, z)
       : (x, z) => x > CONFIG.water.x0 - 2,
     // v6.6 item 5: beach sand (x 420..470) — the sand-speed cap in
     // vehicles.js driveVehicle and the police cap in combat.js read
     // this. Forwarded like isInWater; the fallback matches the
     // sand strip (SAND_X0 420 .. WATER_X0 470).
-    isOnSand: typeof raw.isOnSand === 'function'
+    isOnSand: has('isOnSand')
       ? (x, z) => raw.isOnSand(x, z)
       : (x, z) => x >= 420 && x < CONFIG.water.x0,
     roadGraph: raw.roadGraph || null,
@@ -84,29 +86,23 @@ function normalizeWorld(raw) {
     // v6: lane-shifted steering target at flyover intersections
     // (world.js laneTarget). Forwarded so the traffic drivers
     // (vehicles.js / ambient.js) and the debug hook can use it.
-    laneTarget: typeof raw.laneTarget === 'function'
-      ? (node, prev, next) => raw.laneTarget(node, prev, next) : null,
+    laneTarget: has('laneTarget') ? pass('laneTarget') : null,
     // v6.2: flyover recovery helpers (world.js flyoverExit /
     // unstuckTarget). Same forwarding as laneTarget.
-    flyoverExit: typeof raw.flyoverExit === 'function'
-      ? (x, z, y, h) => raw.flyoverExit(x, z, y, h) : null,
-    unstuckTarget: typeof raw.unstuckTarget === 'function'
-      ? (x, z, y, h) => raw.unstuckTarget(x, z, y, h) : null,
+    flyoverExit: has('flyoverExit') ? pass('flyoverExit') : null,
+    unstuckTarget: has('unstuckTarget') ? pass('unstuckTarget') : null,
     // v6.2: nearest node ahead, for the missed-turn recovery.
-    aheadNode: typeof raw.aheadNode === 'function'
-      ? (x, z, h) => raw.aheadNode(x, z, h) : null,
+    aheadNode: has('aheadNode') ? pass('aheadNode') : null,
     // v6.5 item 5: tallest building roof under a point — the police
     // helicopter's roof avoidance (combat.js updateHeli).
-    tallestAt: typeof raw.tallestAt === 'function'
-      ? (x, z) => raw.tallestAt(x, z) : () => 0,
+    tallestAt: has('tallestAt') ? pass('tallestAt') : () => 0,
     destinations: raw.destinations || null,
-    groundHeightAt: typeof raw.groundHeightAt === 'function' ? (x, z, y = 0) => raw.groundHeightAt(x, z, y) : () => 0,
-    findOpenGround: typeof raw.findOpenGround === 'function'
+    groundHeightAt: has('groundHeightAt') ? (x, z, y = 0) => raw.groundHeightAt(x, z, y) : () => 0,
+    findOpenGround: has('findOpenGround')
       // B's findOpenGround returns null when nothing is open within maxR;
       // callers expect a point, so fall back to the raw coordinates.
       ? (x, z, r) => raw.findOpenGround(x, z, r) || { x, z } : (x, z) => ({ x, z }),
-    nearestSidewalk: typeof raw.nearestSidewalk === 'function'
-      ? (x, z) => raw.nearestSidewalk(x, z) : () => [],
+    nearestSidewalk: has('nearestSidewalk') ? pass('nearestSidewalk') : () => [],
     counts: raw.counts || {},
   };
 }
@@ -161,15 +157,14 @@ const _aimVec = new THREE.Vector3(); // lock-marker projection scratch
 function applyAim() {
   const want = (aimHeldMouse || aimHeldTouch) && state === 'playing' && !paused && !driving;
   combat.setAiming(want);
-  if (want !== aimShown) {
-    aimShown = want;
-    document.getElementById('crosshair')?.classList.toggle('show', want);
-    document.getElementById('btnAim')?.classList.toggle('aiming', want);
-    // Drop the bracket synchronously on release: at SwiftShader frame
-    // rates the per-frame overlay update can lag ~0.5 s behind the input,
-    // and a stale red bracket on a released lock reads as a bug.
-    if (!want) document.getElementById('lockMarker')?.classList.remove('show');
-  }
+  if (want === aimShown) return;
+  aimShown = want;
+  document.getElementById('crosshair')?.classList.toggle('show', want);
+  document.getElementById('btnAim')?.classList.toggle('aiming', want);
+  // Drop the bracket synchronously on release: at SwiftShader frame
+  // rates the per-frame overlay update can lag ~0.5 s behind the input,
+  // and a stale red bracket on a released lock reads as a bug.
+  if (!want) document.getElementById('lockMarker')?.classList.remove('show');
 }
 
 // Builder A v4: position the red lock bracket over the locked target (or
@@ -180,14 +175,18 @@ function updateAimOverlay() {
   const label = document.getElementById('lockLabel');
   if (!marker) return;
   const info = combat.aimInfo();
-  if (!info.locked) { marker.classList.remove('show'); return; }
+  const hide = () => marker.classList.remove('show');
+  if (!info.locked) { hide(); return; }
   _aimVec.set(info.locked.x, info.locked.y, info.locked.z).project(camera);
-  if (_aimVec.z > 1) { marker.classList.remove('show'); return; }
-  const x = (_aimVec.x * 0.5 + 0.5) * window.innerWidth;
-  const y = (-_aimVec.y * 0.5 + 0.5) * window.innerHeight;
-  marker.style.left = `${x}px`;
-  marker.style.top = `${y}px`;
-  if (label) label.textContent = `${info.locked.label} · ${info.locked.dist}m · HP ${Math.max(0, Math.ceil(info.locked.hp))}`;
+  if (_aimVec.z > 1) { hide(); return; }
+  const screenX = (_aimVec.x * 0.5 + 0.5) * window.innerWidth;
+  const screenY = (-_aimVec.y * 0.5 + 0.5) * window.innerHeight;
+  marker.style.left = `${screenX}px`;
+  marker.style.top = `${screenY}px`;
+  if (label) {
+    const hp = Math.max(0, Math.ceil(info.locked.hp));
+    label.textContent = `${info.locked.label} · ${info.locked.dist}m · HP ${hp}`;
+  }
   marker.classList.add('show');
 }
 
@@ -195,12 +194,18 @@ function updateAimOverlay() {
 // in input.js, which feeds the now-hidden #touchHint pill).
 function translateHint(text) {
   if (!document.body.classList.contains('touch-device')) return text;
-  return text
-    .replace('Press E to ', 'Tap CAR to ')
-    .replace('Tekan E untuk ', 'Ketuk CAR untuk ')
-    .replace('WASD move · Shift run · E interact · M map · B backpack · H holster · Hold right-click to aim',
-      'Left stick to move · CAR to enter · Hold AIM to lock a target')
-    .replace('Swimming — steer toward the shore', 'Swimming — stick toward the shore');
+  const swaps = [
+    ['Press E to ', 'Tap CAR to '],
+    ['Tekan E untuk ', 'Ketuk CAR untuk '],
+    [
+      'WASD move · Shift run · E interact · M map · B backpack · H holster · Hold right-click to aim',
+      'Left stick to move · CAR to enter · Hold AIM to lock a target',
+    ],
+    ['Swimming — steer toward the shore', 'Swimming — stick toward the shore'],
+  ];
+  let out = text;
+  for (const [from, to] of swaps) out = out.replace(from, to);
+  return out;
 }
 let gameTime = 0; // seconds of game time (fixed steps only)
 let wallStart = 0; // performance.now() of the first frame (unclamped wall clock)
@@ -282,9 +287,10 @@ let camHoldUntil = 0; // performance.now() ms: follow paused until then
 const CAM_PITCH_MIN = 0.12;
 const CAM_PITCH_MAX = 1.0;
 function angleDelta(from, to) {
-  let d = to - from;
-  while (d > Math.PI) d -= Math.PI * 2;
-  while (d < -Math.PI) d += Math.PI * 2;
+  const TAU = Math.PI * 2;
+  let d = (to - from) % TAU;
+  if (d > Math.PI) d -= TAU;
+  else if (d < -Math.PI) d += TAU;
   return d;
 }
 function placeCamera(dtReal = 0.016) {
@@ -309,38 +315,32 @@ function placeCamera(dtReal = 0.016) {
   const k = 1 - Math.exp(-8 * dt); // damping: smooth, no jumps
   camYaw += angleDelta(camYaw, camYawTarget) * k;
   camPitch += (camPitchTarget - camPitch) * k;
-  const target = driving ? driving.mesh.position : player.group.position;
-  const targetY = target.y || 0;
+  const anchor = driving ? driving.mesh.position : player.group.position;
+  const anchorY = anchor.y || 0;
   const fullDist = driving ? CONFIG.camera.distance + 3 : CONFIG.camera.distance;
-  let dist = fullDist;
   // Camera spot for a given distance, then pull in if it is inside a
   // building footprint (2D colliders; conservative at high pitch).
-  const spot = (d) => ({
-    x: target.x - Math.sin(camYaw) * Math.cos(camPitch) * d,
-    y: targetY + CONFIG.camera.lookHeight + Math.sin(camPitch) * d,
-    z: target.z - Math.cos(camYaw) * Math.cos(camPitch) * d,
+  const spotAt = (d) => ({
+    x: anchor.x - Math.sin(camYaw) * Math.cos(camPitch) * d,
+    y: anchorY + CONFIG.camera.lookHeight + Math.sin(camPitch) * d,
+    z: anchor.z - Math.cos(camYaw) * Math.cos(camPitch) * d,
   });
+  let dist = fullDist;
   if (world.collides) {
-    while (dist > 3.5) {
-      const s = spot(dist);
-      if (!world.collides(s.x, s.z, 0.5)) break;
-      dist -= 0.5;
-    }
+    while (dist > 3.5 && world.collides(spotAt(dist).x, spotAt(dist).z, 0.5)) dist -= 0.5;
   }
-  const pos = spot(dist);
+  const pos = spotAt(dist);
   camera.position.set(pos.x, Math.max(1.2, pos.y), pos.z);
-  camera.lookAt(target.x, targetY + CONFIG.camera.lookHeight, target.z);
+  camera.lookAt(anchor.x, anchorY + CONFIG.camera.lookHeight, anchor.z);
 }
 
 function cameraBasis() {
   // Forward = where the camera looks, on the ground plane; right = screen-right.
   const p = player.group.position;
-  let fx = p.x - camera.position.x;
-  let fz = p.z - camera.position.z;
+  const fx = p.x - camera.position.x;
+  const fz = p.z - camera.position.z;
   const len = Math.hypot(fx, fz) || 1;
-  fx /= len;
-  fz /= len;
-  return { fx, fz, rx: -fz, rz: fx };
+  return { fx: fx / len, fz: fz / len, rx: -fz / len, rz: fx / len };
 }
 
 // ---- Game flow ----
@@ -544,10 +544,12 @@ function dieAndRespawn() {
 // ---- Interaction (E) ----
 function nearestInteractable() {
   const p = player.group.position;
-  const v = vehicles.nearestVehicle(p.x, p.z, 6);
-  if (v) return { kind: 'vehicle', vehicle: v };
+  const nearCar = vehicles.nearestVehicle(p.x, p.z, 6);
+  if (nearCar) return { kind: 'vehicle', vehicle: nearCar };
   // Boats sit in the water just past the shore: allow boarding from the dock.
-  const boat = vehicles.list.find((x) => x.kind === 'boat' && Math.hypot(x.mesh.position.x - p.x, x.mesh.position.z - p.z) < 12);
+  const boat = vehicles.list.find(
+    (x) => x.kind === 'boat' && Math.hypot(x.mesh.position.x - p.x, x.mesh.position.z - p.z) < 12,
+  );
   if (boat) return { kind: 'vehicle', vehicle: boat };
   const shop = shops.nearestShop(p.x, p.z, 12);
   if (shop) return { kind: 'shop', shop };
@@ -571,7 +573,10 @@ function doInteract() {
     player.heading = Math.atan2(spot.x - v.mesh.position.x, spot.z - v.mesh.position.z);
     player.group.rotation.y = player.heading;
     player.group.visible = true;
-    if (v.kind === 'boat') ui.toast(world.isInWater && world.isInWater(spot.x, spot.z) ? 'Swim to shore — hold W' : 'You wade ashore.');
+    if (v.kind === 'boat') {
+      const ashore = world.isInWater && world.isInWater(spot.x, spot.z);
+      ui.toast(ashore ? 'Swim to shore — hold W' : 'You wade ashore.');
+    }
     return;
   }
   const near = nearestInteractable();
@@ -611,10 +616,9 @@ function findExitSpot(v) {
   const clear = (x, z) => {
     if (world.collides && world.collides(x, z, 0.8)) return false;
     if (world.isInWater && world.isInWater(x, z)) return false;
-    for (const o of vehicles.list) {
-      if (o !== v && Math.hypot(o.mesh.position.x - x, o.mesh.position.z - z) < 3) return false;
-    }
-    return true;
+    return !vehicles.list.some(
+      (o) => o !== v && Math.hypot(o.mesh.position.x - x, o.mesh.position.z - z) < 3,
+    );
   };
   const cands = [];
   // Sidewalk centrelines by the nearest road, nearest first; also the same
@@ -624,7 +628,7 @@ function findExitSpot(v) {
     const near = world.roadGraph && world.roadGraph.nearestOnRoad
       ? world.roadGraph.nearestOnRoad(vx, vz) : null;
     const walks = world.nearestSidewalk ? world.nearestSidewalk(vx, vz) : [];
-    for (const w of walks) cands.push(w);
+    cands.push(...walks);
     if (near) {
       const s = world.roadGraph.segments[near.segment];
       const alongX = s.kind === 'horizontal';
@@ -642,7 +646,8 @@ function findExitSpot(v) {
     }
   } catch { /* fall through to the ring */ }
   cands.sort((a, b) => a.dist - b.dist);
-  for (const c of cands) if (clear(c.x, c.z)) return { x: c.x, z: c.z };
+  const firstClear = cands.find((c) => clear(c.x, c.z));
+  if (firstClear) return { x: firstClear.x, z: firstClear.z };
   // Last resort: the ring around the car, then any open ground nearby.
   for (let r = 3; r <= 9; r += 3) {
     for (let k = 0; k < 8; k += 1) {
